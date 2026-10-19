@@ -103,9 +103,9 @@ function Calculator() {
       /* ignore */
     }
     loaded.current = true;
-    const t = (document.documentElement.dataset.theme as "milk" | "gold") || "milk";
+    const t = (document.documentElement.dataset["theme"] as "milk" | "gold") || "milk";
     setTheme(t);
-    const obs = new MutationObserver(() => setTheme((document.documentElement.dataset.theme as "milk" | "gold") || "milk"));
+    const obs = new MutationObserver(() => setTheme((document.documentElement.dataset["theme"] as "milk" | "gold") || "milk"));
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     const w = tg();
     if (w) {
@@ -571,9 +571,9 @@ function Field({
   children,
 }: {
   label: string;
-  error?: string;
-  hint?: string;
-  warn?: string;
+  error?: string | undefined;
+  hint?: string | undefined;
+  warn?: string | undefined;
   children: ReactNode;
 }) {
   return (

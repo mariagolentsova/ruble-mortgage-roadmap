@@ -97,7 +97,7 @@ export function buildSchedule(input: ScheduleInput): ScheduleResult {
     totalInterest,
     totalPaid: S + totalInterest,
     overpaymentPct: S > 0 ? (totalInterest / S) * 100 : 0,
-    lastMonthKey: rows.length ? rows[rows.length - 1].monthKey : startMonthKey,
+    lastMonthKey: rows.length ? rows[rows.length - 1]!.monthKey : startMonthKey,
   };
 }
 
