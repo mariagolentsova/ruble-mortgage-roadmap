@@ -15,7 +15,7 @@ describe("mortgage annuity", () => {
     expect(Math.abs(s.totalPaid - 9_873_125.28)).toBeLessThan(1);
   });
   it("first month split", () => {
-    const r = buildSchedule(base).rows[0];
+    const r = buildSchedule(base).rows[0]!;
     expect(r.interest.toFixed(2)).toBe("32500.00");
     expect(r.principal.toFixed(2)).toBe("22350.69");
     expect(r.balance.toFixed(2)).toBe("6477649.31");
@@ -36,6 +36,6 @@ describe("mortgage annuity", () => {
   it("reduce-payment prepayment keeps the term and lowers payment", () => {
     const s = buildSchedule({ ...base, prepayments: [{ id: "a", monthKey: base.startMonthKey + 11, amount: 1_000_000, type: "payment" }] });
     expect(s.rows.length).toBe(180);
-    expect(s.rows[20].payment).toBeLessThan(54_850);
+    expect(s.rows[20]!.payment).toBeLessThan(54_850);
   });
 });
