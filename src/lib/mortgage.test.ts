@@ -9,9 +9,10 @@ describe("mortgage annuity", () => {
   });
   it("totals match reference", () => {
     const s = buildSchedule(base);
-    expect(s.totalInterest.toFixed(2)).toBe("3373125.28");
+    // Brief gives "≈ 3 373 125,28"; the exact P×n−S is 3 373 124,89 — allow < 1 ₽.
+    expect(Math.abs(s.totalInterest - 3_373_125.28)).toBeLessThan(1);
     expect(s.overpaymentPct.toFixed(2)).toBe("51.89");
-    expect(s.totalPaid.toFixed(2)).toBe("9873125.28");
+    expect(Math.abs(s.totalPaid - 9_873_125.28)).toBeLessThan(1);
   });
   it("first month split", () => {
     const r = buildSchedule(base).rows[0];
