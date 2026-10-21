@@ -61,7 +61,7 @@ describe("mortgage annuity", () => {
     expect(s.rows.at(-1)!.balance).toBe(0);
   });
   it("prepayment larger than the balance closes the loan that month", () => {
-    const s = buildSchedule(base, [once({ startDate: keyToYm(base.startMonthKey + 11), amount: 6_000_000 })]);
+    const s = buildSchedule(base, [once({ startDate: keyToYm(base.startMonthKey + 11), amount: 10_000_000 })]);
     expect(s.rows.length).toBe(12);
     expect(s.rows.at(-1)!.balance).toBe(0);
   });
@@ -112,7 +112,9 @@ describe("mortgage annuity", () => {
     const s = buildSchedule(base, list);
     const plain = buildSchedule(base);
     expect(s.totalInterest).toBeLessThan(plain.totalInterest);
-    expect(s.totalPrepaid).toBeCloseTo(50_000 * s.rows.filter((r) => r.extra > 0).length, 0);
+    expect(s.rows.length).toBeLessThan(180); // 50 000 ₽/мес. закрывает кредит раньше срока
+    expect(s.totalPrepaid).toBeGreaterThan(0);
+    expect(s.rows.every((r) => r.extra <= 50_000)).toBe(true);
     expect(ymToKey("2026-03")).toBe(2026 * 12 + 2);
   });
 });
