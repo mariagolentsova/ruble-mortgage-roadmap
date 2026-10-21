@@ -100,9 +100,7 @@ describe("mortgage annuity", () => {
     expect(validateEarlyPayment(once({ startDate: keyToYm(loanEnd + 1) }), base.startMonthKey, loanEnd)).toContain("за срок");
     expect(
       validateEarlyPayment(
-        once({ kind: "recurring", startDate: keyToYm(base.startMonthKey), endDate: keyToYm(base.startMonthKey + 2) }).startDate === undefined
-          ? once({ kind: "recurring", startDate: keyToYm(base.startMonthKey + 5), endDate: keyToYm(base.startMonthKey + 2) })
-          : once({ kind: "recurring", startDate: keyToYm(base.startMonthKey + 5), endDate: keyToYm(base.startMonthKey + 2) }),
+        once({ kind: "recurring", startDate: keyToYm(base.startMonthKey + 5), endDate: keyToYm(base.startMonthKey + 2) }),
         base.startMonthKey,
         loanEnd,
       ),
