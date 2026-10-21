@@ -78,15 +78,16 @@ function normalizePrepay(x: unknown): EarlyPayment | null {
   if (!x || typeof x !== "object") return null;
   const p = x as Partial<EarlyPayment> & { monthKey?: number; type?: string };
   if ((p.kind === "once" || p.kind === "recurring") && typeof p.startDate === "string") {
-    return {
+    const out: EarlyPayment = {
       id: p.id ?? uid(),
       kind: p.kind,
       startDate: p.startDate,
-      endDate: p.endDate,
-      frequency: p.frequency,
       amount: Number(p.amount) || 0,
       effect: p.effect === "reducePayment" ? "reducePayment" : "reduceTerm",
     };
+    if (p.endDate) out.endDate = p.endDate;
+    if (p.frequency) out.frequency = p.frequency;
+    return out;
   }
   if (typeof p.monthKey === "number") {
     return {
@@ -529,9 +530,23 @@ function Results({
   );
 }
 
-function ScheduleTable({ rows }: { rows: ScheduleRow[] }) {
+function ScheduleCard({ rows }: { rows: ScheduleRow[] }) {
+  const [open, setOpen] = useState(false);
+  const [rendered, setRendered] = useState(false);
   const [all, setAll] = useState(false);
   const [byYear, setByYear] = useState(false);
+  // Recalculation collapses the "show all" expansion; the open state itself is kept.
+  useEffect(() => setAll(false), [rows]);
+  // Keep content mounted briefly after closing so the height animation can play.
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      return;
+    }
+    const t = setTimeout(() => setRendered(false), 220);
+    return () => clearTimeout(t);
+  }, [open]);
+
   const hasExtra = rows.some((r) => r.extra > 0);
   const years = useMemo(() => {
     const m = new Map<number, ScheduleRow[]>();
@@ -543,81 +558,144 @@ function ScheduleTable({ rows }: { rows: ScheduleRow[] }) {
   }, [rows]);
 
   return (
-    <Card
-      title="График платежей"
-      action={
-        <Segmented
-          small
-          value={byYear ? "y" : "m"}
-          onChange={(v) => setByYear(v === "y")}
-          options={[["m", "Списком"], ["y", "По годам"]]}
-        />
-      }
-    >
-      {byYear ? (
-        <Accordion type="multiple" className="-mx-1">
-          {years.map(([y, rs]) => {
-            const sum = (k: "payment" | "principal" | "interest" | "extra") => rs.reduce((s, r) => s + r[k], 0);
-            return (
-              <AccordionItem key={y} value={String(y)}>
-                <AccordionTrigger className="min-h-11 px-1 text-sm">
-                  <span className="flex flex-1 justify-between pr-2">
-                    <span className="font-semibold">{y}</span>
-                    <span className="text-muted-foreground">{fmtMoney(sum("payment") + sum("extra"))} ₽</span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <Table rows={rows.length ? rs : []} hasExtra={hasExtra} />
-                </AccordionContent>
-              </AccordionItem>
-            );
-          })}
-        </Accordion>
-      ) : (
-        <>
-          <Table rows={all ? rows : rows.slice(0, 12)} hasExtra={hasExtra} tall={all} />
-          {rows.length > 12 && (
-            <button
-              type="button"
-              onClick={() => setAll(!all)}
-              className="min-h-11 w-full rounded-md bg-muted text-sm font-semibold"
-            >
-              {all ? "Свернуть" : `Показать все (${rows.length})`}
-            </button>
+    <section className="overflow-hidden rounded-xl bg-card text-card-foreground shadow-soft">
+      <Collapsible
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setAll(false); // after collapsing, the next opening shows the first 12 rows again
+        }}
+      >
+        <CollapsibleTrigger className="flex min-h-16 w-full items-center justify-between gap-3 px-5 py-3 text-left">
+          <span className="min-w-0">
+            <span className="block text-base font-bold">График платежей</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {formatPayments(rows.length)} · до {formatMonthShort(rows[rows.length - 1]!.monthKey)}
+            </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5 text-chart-principal">
+            <span className="text-sm font-semibold">{open ? "Скрыть" : "Показать"}</span>
+            <ChevronDown
+              className={`h-4 w-4 transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+            />
+          </span>
+        </CollapsibleTrigger>
+        <CollapsibleContent
+          forceMount
+          className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"
+          style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+        >
+          {rendered && (
+            <div className="min-h-0 overflow-hidden">
+              <div className="space-y-3 px-5 pb-5">
+                <div className="flex justify-end">
+                  <Segmented
+                    small
+                    value={byYear ? "y" : "m"}
+                    onChange={(v) => setByYear(v === "y")}
+                    options={[["m", "Списком"], ["y", "По годам"]]}
+                  />
+                </div>
+                {byYear ? (
+                  <Accordion type="multiple" className="-mx-1">
+                    {years.map(([y, rs]) => {
+                      const sum = (k: "payment" | "principal" | "interest" | "extra") => rs.reduce((s, r) => s + r[k], 0);
+                      return (
+                        <AccordionItem key={y} value={String(y)}>
+                          <AccordionTrigger className="min-h-11 px-1 text-sm">
+                            <span className="flex flex-1 justify-between pr-2">
+                              <span className="font-semibold">{y}</span>
+                              <span className="text-muted-foreground">{fmtMoney(sum("payment") + sum("extra"))} ₽</span>
+                            </span>
+                          </AccordionTrigger>
+                          <AccordionContent>
+                            <Table rows={rs} hasExtra={hasExtra} />
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
+                    })}
+                  </Accordion>
+                ) : (
+                  <>
+                    <Table rows={all ? rows : rows.slice(0, 12)} hasExtra={hasExtra} tall={all} />
+                    {rows.length > 12 && (
+                      <button
+                        type="button"
+                        onClick={() => setAll(!all)}
+                        className="min-h-11 w-full rounded-md bg-muted text-sm font-semibold"
+                      >
+                        {all ? "Свернуть" : `Показать все (${rows.length})`}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
           )}
-        </>
-      )}
-    </Card>
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
   );
 }
 
 function Table({ rows, hasExtra, tall }: { rows: ScheduleRow[]; hasExtra: boolean; tall?: boolean }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [hint, setHint] = useState(false);
+  // Right-edge gradient is a scroll hint: visible while the table overflows and is not scrolled to the end.
+  const update = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const overflow = el.scrollWidth - el.clientWidth > 4;
+    setHint(overflow && el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  };
+  useEffect(() => {
+    update();
+    const el = scroller.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [rows]);
+
   return (
-    <div className={`-mx-5 overflow-auto ${tall ? "max-h-[70vh]" : ""}`}>
-      <table className="w-full min-w-[620px] border-separate border-spacing-0 text-right text-xs tabular-nums">
-        <thead className="sticky top-0 z-10 bg-card">
-          <tr className="text-muted-foreground">
-            {["№", "Месяц", "Платёж", "Основной долг", "Проценты", ...(hasExtra ? ["Досрочно"] : []), "Остаток"].map((h, i) => (
-              <th key={h} className={`border-b px-2 py-2 font-medium ${i < 2 ? "text-left" : ""} ${i === 0 ? "pl-5" : ""}`}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.index} className="even:bg-muted">
-              <td className="py-2 pl-5 pr-2 text-left text-muted-foreground">{r.index}</td>
-              <td className="whitespace-nowrap px-2 py-2 text-left">{formatMonthShort(r.monthKey)}</td>
-              <td className="whitespace-nowrap px-2 py-2 font-semibold">{fmtMoney(r.payment)}</td>
-              <td className="whitespace-nowrap px-2 py-2">{fmtMoney(r.principal)}</td>
-              <td className="whitespace-nowrap px-2 py-2">{fmtMoney(r.interest)}</td>
-              {hasExtra && <td className="whitespace-nowrap px-2 py-2">{r.extra ? fmtMoney(r.extra) : "—"}</td>}
-              <td className="whitespace-nowrap py-2 pl-2 pr-5">{fmtMoney(r.balance)}</td>
+    <div className="relative -mx-5">
+      <div ref={scroller} onScroll={update} className={`overflow-auto ${tall ? "max-h-[70vh]" : ""}`}>
+        <table className="w-full min-w-[640px] border-separate border-spacing-0 text-right text-xs tabular-nums">
+          <thead className="sticky top-0 z-10 bg-card">
+            <tr className="text-muted-foreground">
+              {["№", "Месяц", "Платёж", "Основной долг", "Проценты", ...(hasExtra ? ["Досрочно"] : []), "Остаток"].map((h, i) => (
+                <th key={h} className={`border-b px-2 py-2 font-medium ${i < 2 ? "text-left" : ""} ${i === 0 ? "pl-5" : ""}`}>
+                  {h}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.index} className="even:bg-muted" style={r.extra ? { background: "var(--accent)" } : undefined}>
+                <td className="py-2 pl-5 pr-2 text-left align-top text-muted-foreground">{r.index}</td>
+                <td className="whitespace-nowrap px-2 py-2 text-left align-top">
+                  {formatMonthShort(r.monthKey)}
+                  {r.extra > 0 && (
+                    <div className="whitespace-nowrap text-[10px] font-semibold text-accent-foreground">
+                      + досрочно {fmtMoney(r.extra)} ₽
+                    </div>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-2 py-2 font-semibold align-top">{fmtMoney(r.payment)}</td>
+                <td className="whitespace-nowrap px-2 py-2 align-top">{fmtMoney(r.principal)}</td>
+                <td className="whitespace-nowrap px-2 py-2 align-top">{fmtMoney(r.interest)}</td>
+                {hasExtra && <td className="whitespace-nowrap px-2 py-2 align-top">{r.extra ? fmtMoney(r.extra) : "—"}</td>}
+                <td className="whitespace-nowrap py-2 pl-2 pr-5 align-top">{fmtMoney(r.balance)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {hint && (
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-20 w-10 bg-gradient-to-l from-card via-card/60 to-transparent" />
+      )}
     </div>
   );
 }
@@ -746,60 +824,182 @@ function Segmented<T extends string>({
 
 const MONTH_NAMES = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 
-function MonthPicker({ value, onChange }: { value: number; onChange: (k: number) => void }) {
+function MonthPicker({
+  value,
+  onChange,
+  emptyLabel,
+}: {
+  value: number | null;
+  onChange: (k: number) => void;
+  /** Helper shown under the pickers while the value is empty, e.g. "Пусто — до конца срока кредита". */
+  emptyLabel?: string;
+}) {
   const nowY = new Date().getFullYear();
   const years = Array.from({ length: 81 }, (_, i) => nowY - 10 + i);
-  const y = keyYear(value);
-  const m = keyMonth(value);
-  const cls = "min-h-12 rounded-md border border-input bg-background px-3 text-base font-semibold outline-none focus:border-ring";
+  const hasValue = value != null && Number.isFinite(value);
+  const y = hasValue ? keyYear(value) : NaN;
+  const m = hasValue ? keyMonth(value) : NaN;
   return (
-    <div className="flex gap-2">
-      <select aria-label="Месяц" className={`${cls} flex-1`} value={m} onChange={(e) => onChange(y * 12 + Number(e.target.value))}>
-        {MONTH_NAMES.map((n, i) => (
-          <option key={n} value={i}>
-            {n}
-          </option>
-        ))}
-      </select>
-      <select aria-label="Год" className={`${cls} w-28`} value={y} onChange={(e) => onChange(Number(e.target.value) * 12 + m)}>
-        {years.map((yy) => (
-          <option key={yy} value={yy}>
-            {yy}
-          </option>
-        ))}
-      </select>
+    <div>
+      <div className="flex gap-2">
+        <select
+          aria-label="Месяц"
+          className={`${selectCls} flex-1`}
+          value={Number.isFinite(m) ? m : ""}
+          onChange={(e) => {
+            if (e.target.value === "") return;
+            onChange((Number.isFinite(y) ? y : nowY) * 12 + Number(e.target.value));
+          }}
+        >
+          {!hasValue && <option value="">Месяц</option>}
+          {MONTH_NAMES.map((n, i) => (
+            <option key={n} value={i}>
+              {n}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Год"
+          className={`${selectCls} w-28`}
+          value={Number.isFinite(y) ? y : ""}
+          onChange={(e) => {
+            if (e.target.value === "") return;
+            onChange(Number(e.target.value) * 12 + (Number.isFinite(m) ? m : 0));
+          }}
+        >
+          {!hasValue && <option value="">Год</option>}
+          {years.map((yy) => (
+            <option key={yy} value={yy}>
+              {yy}
+            </option>
+          ))}
+        </select>
+      </div>
+      {!hasValue && emptyLabel && <p className="mt-1 text-xs text-muted-foreground">{emptyLabel}</p>}
     </div>
   );
 }
 
-function PrepayRow({ p, onChange, onRemove }: { p: Prepayment; onChange: (p: Prepayment) => void; onRemove: () => void }) {
+const FREQ_OPTIONS: [Frequency, string][] = [
+  ["monthly", "Ежемесячно"],
+  ["quarterly", "Ежеквартально"],
+  ["semiannual", "Раз в полгода"],
+  ["yearly", "Раз в год"],
+];
+
+const selectCls =
+  "min-h-12 w-full rounded-md border border-input bg-background px-3 text-base font-semibold outline-none focus:border-ring";
+
+function PrepayCard({
+  p,
+  index,
+  error,
+  closesLoan,
+  onChange,
+  onRemove,
+}: {
+  p: EarlyPayment;
+  index: number;
+  error?: string;
+  closesLoan: boolean;
+  onChange: (p: EarlyPayment) => void;
+  onRemove: () => void;
+}) {
+  const labelCls = "mb-1.5 text-sm font-medium text-muted-foreground";
   return (
-    <div className="fade-in-up space-y-3 rounded-lg border bg-background p-3">
-      <div className="flex items-start gap-2">
-        <div className="flex-1">
-          <MonthPicker value={p.monthKey} onChange={(k) => onChange({ ...p, monthKey: k })} />
-        </div>
+    <div className={`fade-in-up space-y-3 rounded-lg border bg-background p-3 ${error ? "border-destructive" : "border-input"}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Погашение {index + 1}</span>
         <button
           type="button"
           aria-label="Удалить"
           onClick={onRemove}
-          className="flex h-12 w-11 items-center justify-center rounded-md text-destructive"
+          className="flex h-9 w-9 items-center justify-center rounded-md text-destructive"
         >
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
-      <NumInput
-        value={String(p.amount || "")}
-        onChange={(v) => onChange({ ...p, amount: Number(v) || 0 })}
-        suffix="₽"
-        integer
-        invalid={!p.amount}
-      />
+
       <Segmented
-        value={p.type}
-        onChange={(t) => onChange({ ...p, type: t })}
-        options={[["term", "Уменьшить срок"], ["payment", "Уменьшить платёж"]]}
+        value={p.kind}
+        onChange={(k) =>
+          onChange(
+            k === "once"
+              ? { id: p.id, kind: "once", startDate: p.startDate, amount: p.amount, effect: p.effect }
+              : {
+                  id: p.id,
+                  kind: "recurring",
+                  startDate: p.startDate,
+                  frequency: p.frequency ?? "monthly",
+                  amount: p.amount,
+                  effect: p.effect,
+                },
+          )
+        }
+        options={[["once", "Единоразово"], ["recurring", "Периодически"]]}
       />
+
+      {p.kind === "once" ? (
+        <div>
+          <div className={labelCls}>Дата погашения</div>
+          <MonthPicker value={ymToKey(p.startDate)} onChange={(k) => onChange({ ...p, startDate: keyToYm(k) })} />
+          {closesLoan && <p className="mt-1 text-xs text-warning">Кредит будет погашен полностью</p>}
+        </div>
+      ) : (
+        <>
+          <div>
+            <label htmlFor="prepay-frequency" className={labelCls}>
+              Частота
+            </label>
+            <select
+              id="prepay-frequency"
+              className={selectCls}
+              value={p.frequency ?? "monthly"}
+              onChange={(e) => onChange({ ...p, frequency: e.target.value as Frequency })}
+            >
+              {FREQ_OPTIONS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <div className={labelCls}>Начиная с</div>
+            <MonthPicker value={ymToKey(p.startDate)} onChange={(k) => onChange({ ...p, startDate: keyToYm(k) })} />
+          </div>
+          <div>
+            <div className={labelCls}>Заканчивая</div>
+            <MonthPicker
+              value={p.endDate ? ymToKey(p.endDate) : null}
+              onChange={(k) => onChange({ ...p, endDate: keyToYm(k) })}
+              emptyLabel="Пусто — до конца срока кредита"
+            />
+          </div>
+        </>
+      )}
+
+      <div>
+        <div className={labelCls}>{p.kind === "recurring" ? "Сумма каждого погашения" : "Сумма"}</div>
+        <NumInput
+          value={p.amount ? String(p.amount) : ""}
+          onChange={(v) => onChange({ ...p, amount: parseNum(v) || 0 })}
+          suffix="₽"
+          integer
+          invalid={!(p.amount > 0)}
+        />
+      </div>
+
+      <div>
+        <div className={labelCls}>Результат погашения</div>
+        <Segmented
+          value={p.effect}
+          onChange={(t) => onChange({ ...p, effect: t })}
+          options={[["reduceTerm", "Уменьшить срок"], ["reducePayment", "Уменьшить платёж"]]}
+        />
+      </div>
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
@@ -826,8 +1026,3 @@ function Legend() {
   );
 }
 
-function formatTerm(m: number) {
-  const y = Math.floor(m / 12);
-  const mm = m % 12;
-  return [y ? `${y} г.` : "", mm ? `${mm} мес.` : ""].filter(Boolean).join(" ");
-}
