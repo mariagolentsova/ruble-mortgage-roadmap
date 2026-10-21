@@ -1,24 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Info, Plus, Trash2, Share2, Send, RotateCcw } from "lucide-react";
+import { ChevronDown, Info, Plus, Trash2, Share2, Send, RotateCcw } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Donut, RepaymentBars } from "@/components/mortgage/Charts";
 import {
   buildSchedule,
+  expandEarlyPayments,
   fmtInt,
   fmtMoney,
   fmtPct,
   formatMonthLong,
   formatMonthShort,
+  formatPayments,
+  formatTermRu,
   keyMonth,
+  keyToYm,
   keyYear,
   monthKeyOf,
   parseNum,
-  type Prepayment,
+  validateEarlyPayment,
+  ymToKey,
+  type EarlyPayment,
+  type Frequency,
   type ScheduleRow,
 } from "@/lib/mortgage";
 import logoMilk from "@/assets/logo-milk.png.asset.json";
@@ -48,7 +56,7 @@ type FormState = {
   termUnit: "y" | "m";
   rate: string;
   startKey: number;
-  prepays: Prepayment[];
+  prepays: EarlyPayment[];
   prepayOpen: boolean;
 };
 
@@ -64,6 +72,33 @@ const defaults = (): FormState => ({
   prepays: [],
   prepayOpen: false,
 });
+
+/** Saved form may predate the recurring model ({monthKey, type}) — upgrade it silently. */
+function normalizePrepay(x: unknown): EarlyPayment | null {
+  if (!x || typeof x !== "object") return null;
+  const p = x as Partial<EarlyPayment> & { monthKey?: number; type?: string };
+  if ((p.kind === "once" || p.kind === "recurring") && typeof p.startDate === "string") {
+    return {
+      id: p.id ?? uid(),
+      kind: p.kind,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      frequency: p.frequency,
+      amount: Number(p.amount) || 0,
+      effect: p.effect === "reducePayment" ? "reducePayment" : "reduceTerm",
+    };
+  }
+  if (typeof p.monthKey === "number") {
+    return {
+      id: p.id ?? uid(),
+      kind: "once",
+      startDate: keyToYm(p.monthKey),
+      amount: Number(p.amount) || 0,
+      effect: p.type === "payment" ? "reducePayment" : "reduceTerm",
+    };
+  }
+  return null;
+}
 
 type TgWebApp = {
   ready: () => void;
@@ -95,8 +130,12 @@ function Calculator() {
     try {
       const raw = localStorage.getItem(STORAGE);
       if (raw) {
-        const s = JSON.parse(raw);
-        setF({ ...defaults(), ...s.form });
+        const s = JSON.parse(raw) as { form?: Partial<FormState> & { prepays?: unknown[] }; shown?: boolean };
+        setF({
+          ...defaults(),
+          ...s.form,
+          prepays: Array.isArray(s.form?.prepays) ? (s.form.prepays.map(normalizePrepay).filter(Boolean) as EarlyPayment[]) : [],
+        });
         setShown(!!s.shown);
       }
     } catch {
@@ -149,8 +188,25 @@ function Calculator() {
   const valid = Object.keys(errors).length === 0;
   const lowDown = valid && downRub < price * 0.2;
 
+  /* ---- early prepayments ---- */
+  const loanEndKey = f.startKey + Math.max(1, months) - 1;
+  const prepayErrors: (string | null)[] = f.prepays.map((p) =>
+    valid ? validateEarlyPayment(p, f.startKey, loanEndKey) : "Сначала исправьте параметры кредита",
+  );
+  const validPrepays = f.prepays.filter((_, i) => !prepayErrors[i]);
+  // Schedule without prepayments: baseline for the effect block and the "loan closed in full" hint.
+  const plain = useMemo(
+    () => (valid ? buildSchedule({ principal: loan, months, annualRate: rate, startMonthKey: f.startKey }) : null),
+    [valid, loan, months, rate, f.startKey],
+  );
+  const closesLoan = (p: EarlyPayment) => {
+    if (p.kind !== "once" || !(p.amount > 0) || !plain) return false;
+    const row = plain.rows.find((r) => r.monthKey === ymToKey(p.startDate));
+    return !!row && p.amount >= row.balance - 0.01;
+  };
+
   /* ---- debounced inputs ---- */
-  const key = valid ? JSON.stringify([loan, months, rate, f.startKey, f.prepayOpen ? f.prepays : []]) : "";
+  const key = valid ? JSON.stringify([loan, months, rate, f.startKey, validPrepays]) : "";
   const [debKey, setDebKey] = useState(key);
   useEffect(() => {
     const t = setTimeout(() => setDebKey(key), 300);
@@ -159,10 +215,17 @@ function Calculator() {
 
   const calc = useMemo(() => {
     if (!debKey) return null;
-    const [S, n, r, start, prepays] = JSON.parse(debKey) as [number, number, number, number, Prepayment[]];
-    const res = buildSchedule({ principal: S, months: n, annualRate: r, startMonthKey: start, prepayments: prepays });
+    const [S, n, r, start, prepays] = JSON.parse(debKey) as [number, number, number, number, EarlyPayment[]];
+    const res = buildSchedule({ principal: S, months: n, annualRate: r, startMonthKey: start }, prepays);
     const baseline = prepays.length ? buildSchedule({ principal: S, months: n, annualRate: r, startMonthKey: start }) : null;
-    return { S, res, baseline };
+    // Monthly payments recalculated after each "reduce payment" prepayment, in order.
+    const paymentChanges: number[] = [];
+    for (const e of expandEarlyPayments(prepays, start, start + n - 1)) {
+      if (e.effect !== "reducePayment") continue;
+      const i = res.rows.findIndex((rw) => rw.monthKey === e.monthKey);
+      if (i >= 0 && i + 1 < res.rows.length) paymentChanges.push(res.rows[i + 1]!.payment);
+    }
+    return { S, res, baseline, paymentChanges };
   }, [debKey]);
 
   const onCalculate = () => {
@@ -301,10 +364,13 @@ function Calculator() {
           {f.prepayOpen && (
             <div className="fade-in-up space-y-3">
               {f.prepays.length === 0 && <p className="text-sm text-muted-foreground">Пока нет досрочных погашений.</p>}
-              {f.prepays.map((p) => (
-                <PrepayRow
+              {f.prepays.map((p, i) => (
+                <PrepayCard
                   key={p.id}
                   p={p}
+                  index={i}
+                  error={prepayErrors[i] ?? undefined}
+                  closesLoan={closesLoan(p)}
                   onChange={(np) => set("prepays", f.prepays.map((x) => (x.id === p.id ? np : x)))}
                   onRemove={() => set("prepays", f.prepays.filter((x) => x.id !== p.id))}
                 />
@@ -312,7 +378,10 @@ function Calculator() {
               <button
                 type="button"
                 onClick={() =>
-                  set("prepays", [...f.prepays, { id: uid(), monthKey: f.startKey + 12, amount: 500_000, type: "term" }])
+                  set("prepays", [
+                    ...f.prepays,
+                    { id: uid(), kind: "once", startDate: keyToYm(f.startKey + 12), amount: 500_000, effect: "reduceTerm" },
+                  ])
                 }
                 className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-dashed border-input text-sm font-medium"
               >
@@ -357,14 +426,21 @@ function Results({
   calc,
   onShare,
 }: {
-  calc: { S: number; res: ReturnType<typeof buildSchedule>; baseline: ReturnType<typeof buildSchedule> | null };
+  calc: {
+    S: number;
+    res: ReturnType<typeof buildSchedule>;
+    baseline: ReturnType<typeof buildSchedule> | null;
+    paymentChanges: number[];
+  };
   onShare: () => void;
 }) {
-  const { S, res, baseline } = calc;
+  const { S, res, baseline, paymentChanges } = calc;
   const savedInterest = baseline ? baseline.totalInterest - res.totalInterest : 0;
   const savedMonths = baseline ? baseline.rows.length - res.rows.length : 0;
   const lastPayment = res.rows.at(-1)?.payment ?? 0;
-  const changedPayment = baseline && res.rows.some((r, i) => i < res.rows.length - 1 && Math.abs(r.payment - res.monthlyPayment) > 0.01);
+  const changedPayment = baseline && paymentChanges.length > 0;
+  const firstNewPayment = paymentChanges[0];
+  const lastNewPayment = paymentChanges.length > 1 ? paymentChanges[paymentChanges.length - 1] : undefined;
 
   return (
     <div className="fade-in-up space-y-4">
@@ -399,24 +475,39 @@ function Results({
           />
           <Row label="Кредит + проценты" value={`${fmtMoney(res.totalPaid)} ₽`} strong />
           <Row label="Последний платёж" value={formatMonthLong(res.lastMonthKey)} />
-          {baseline && (
-            <>
-              <Row label="Экономия на процентах" value={`${fmtMoney(savedInterest)} ₽`} strong />
-              <Row label="Сокращение срока" value={savedMonths > 0 ? formatTerm(savedMonths) : "—"} />
-            </>
-          )}
         </dl>
         <div className="border-t pt-4">
           <Donut principal={S} interest={res.totalInterest} />
         </div>
       </Card>
 
+      {baseline && (
+        <Card title="Эффект досрочных погашений">
+          <dl className="space-y-3 text-sm">
+            <Row label="Экономия на процентах" value={`${fmtMoney(savedInterest)} ₽`} strong />
+            <Row label="Новый срок кредита" value={formatTermRu(res.rows.length)} />
+            {savedMonths > 0 && <Row label="Сокращение срока" value={`на ${formatTermRu(savedMonths)}`} />}
+            <Row label="Сумма досрочных погашений" value={`${fmtMoney(res.totalPrepaid)} ₽`} />
+            <Row label="Новая дата последнего платежа" value={formatMonthLong(res.lastMonthKey)} />
+            {changedPayment && lastNewPayment === undefined && (
+              <Row label="Новый ежемесячный платёж" value={`${fmtMoney(firstNewPayment!)} ₽`} strong />
+            )}
+            {lastNewPayment !== undefined && (
+              <>
+                <Row label="Новый платёж (первый)" value={`${fmtMoney(firstNewPayment!)} ₽`} />
+                <Row label="Новый платёж (последний)" value={`${fmtMoney(lastNewPayment)} ₽`} strong />
+              </>
+            )}
+          </dl>
+        </Card>
+      )}
+
       <Card title="График погашения">
         <RepaymentBars rows={res.rows} />
         <Legend />
       </Card>
 
-      <ScheduleTable rows={res.rows} />
+      <ScheduleCard rows={res.rows} />
 
       <div className="grid gap-2 pb-2">
         <button
