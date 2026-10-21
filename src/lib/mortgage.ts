@@ -20,9 +20,9 @@ export const FREQ_STEP: Record<Frequency, number> = { monthly: 1, quarterly: 3, 
 
 /** 'YYYY-MM' → calendar month index (year * 12 + 0-based month). */
 export function ymToKey(ym: string): number {
-  const [y, m] = ym.split("-").map(Number);
-  if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return NaN;
-  return y * 12 + (m - 1);
+  const m = /^(\d{4})-(\d{2})$/.exec(ym);
+  if (!m) return NaN;
+  return Number(m[1]) * 12 + (Number(m[2]) - 1);
 }
 
 export const keyToYm = (k: number) => `${Math.floor(k / 12)}-${String((k % 12) + 1).padStart(2, "0")}`;
