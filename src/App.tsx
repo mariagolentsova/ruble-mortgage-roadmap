@@ -150,7 +150,12 @@ export default function Calculator() {
   }, []);
 
   useEffect(() => {
-    if (loaded.current) localStorage.setItem(STORAGE, JSON.stringify({ form: f, shown }));
+    if (!loaded.current) return;
+    try {
+      localStorage.setItem(STORAGE, JSON.stringify({ form: f, shown }));
+    } catch {
+      /* storage blocked (private mode, some WebViews) — the form still works, it just isn't remembered */
+    }
   }, [f, shown]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((p) => ({ ...p, [k]: v }));
