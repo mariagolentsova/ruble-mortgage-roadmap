@@ -17,12 +17,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Node 24 ships npm 11; npm 10 crashes while resolving this dependency tree.
+          node-version: 24
+          cache: npm
 
-      # Uses the lockfile when it is committed, otherwise resolves fresh.
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+        run: npm ci --no-audit --no-fund
 
       - name: Test
         run: npm test

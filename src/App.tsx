@@ -832,7 +832,7 @@ function MonthPicker({
       <div className="flex gap-2">
         <select
           aria-label="Месяц"
-          className={`${selectCls} flex-1`}
+          className={`${selectBase} min-w-0 flex-1`}
           value={Number.isFinite(m) ? m : ""}
           onChange={(e) => {
             if (e.target.value === "") return;
@@ -848,7 +848,7 @@ function MonthPicker({
         </select>
         <select
           aria-label="Год"
-          className={`${selectCls} w-28`}
+          className={`${selectBase} w-28 shrink-0`}
           value={Number.isFinite(y) ? y : ""}
           onChange={(e) => {
             if (e.target.value === "") return;
@@ -875,8 +875,9 @@ const FREQ_OPTIONS: [Frequency, string][] = [
   ["yearly", "Раз в год"],
 ];
 
-const selectCls =
-  "min-h-12 w-full rounded-md border border-input bg-background px-3 text-base font-semibold outline-none focus:border-ring";
+const selectBase =
+  "min-h-12 rounded-md border border-input bg-background px-3 text-base font-semibold outline-none focus:border-ring";
+const selectCls = `${selectBase} w-full`;
 
 function PrepayCard({
   p,
@@ -888,7 +889,7 @@ function PrepayCard({
 }: {
   p: EarlyPayment;
   index: number;
-  error?: string;
+  error?: string | undefined;
   closesLoan: boolean;
   onChange: (p: EarlyPayment) => void;
   onRemove: () => void;

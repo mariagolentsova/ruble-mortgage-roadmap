@@ -85,9 +85,8 @@ certbot --nginx -d your-domain.ru
 Запушьте в `main` или запустите вручную: репозиторий → **Actions → Build and deploy → Run workflow**.
 Через 1–2 минуты сайт откроется по `https://your-domain.ru`.
 
-После первой успешной сборки стоит закоммитить `package-lock.json`
-(выполните `npm install` у себя и закоммитьте файл) — тогда версии пакетов
-перестанут «плавать» между сборками.
+Версии пакетов зафиксированы в `package-lock.json`, поэтому каждая сборка
+получается одинаковой. После изменения зависимостей закоммитьте обновлённый lock-файл.
 
 ## 7. Подключение к боту
 
@@ -99,7 +98,7 @@ certbot --nginx -d your-domain.ru
 Соберите проект у себя и скопируйте папку `dist` на сервер:
 
 ```bash
-npm install
+npm ci        # нужен Node.js 24
 npm run build
 rsync -az --delete dist/ deploy@IP_СЕРВЕРА:/var/www/mortgage/
 ```
