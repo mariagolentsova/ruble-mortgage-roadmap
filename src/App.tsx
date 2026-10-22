@@ -1,4 +1,3 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { ChevronDown, Info, Plus, Trash2, Share2, Send, RotateCcw } from "lucide-react";
@@ -29,22 +28,11 @@ import {
   type Frequency,
   type ScheduleRow,
 } from "@/lib/mortgage";
-import logoMilk from "@/assets/logo-milk.png.asset.json";
-import logoGold from "@/assets/logo-gold.png.asset.json";
 
-export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "Ипотечный калькулятор — Совесть" },
-      { name: "description", content: "Ежемесячный платёж, переплата, досрочные погашения и график платежей по ипотеке." },
-      { property: "og:title", content: "Ипотечный калькулятор — Совесть" },
-      { property: "og:description", content: "Ежемесячный платёж, переплата, досрочные погашения и график платежей по ипотеке." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-    ],
-  }),
-  component: Calculator,
-});
+// Logos live in public/ and are served as-is by Nginx.
+const LOGO_MILK = "/logo-milk.png";
+const LOGO_GOLD = "/logo-gold.png";
+
 
 /* ---------- state ---------- */
 
@@ -120,7 +108,7 @@ const groupDigits = (s: string) => {
 
 /* ---------- page ---------- */
 
-function Calculator() {
+export default function Calculator() {
   const [f, setF] = useState<FormState>(defaults);
   const [shown, setShown] = useState(false);
   const [theme, setTheme] = useState<"milk" | "gold">("milk");
@@ -284,7 +272,7 @@ function Calculator() {
     }
   };
 
-  const logo = theme === "gold" ? logoGold.url : logoMilk.url;
+  const logo = theme === "gold" ? LOGO_GOLD : LOGO_MILK;
 
   return (
     <div className="mx-auto min-h-screen w-full max-w-[480px] overflow-x-hidden">
