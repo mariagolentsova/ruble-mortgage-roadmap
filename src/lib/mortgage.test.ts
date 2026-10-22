@@ -71,6 +71,11 @@ describe("mortgage annuity", () => {
     expect(xs.map((x) => x.monthKey)).toEqual([base.startMonthKey, base.startMonthKey + 3, base.startMonthKey + 6, base.startMonthKey + 9]);
     expect(xs.every((x) => x.amount === 1_000_000 && x.effect === "reduceTerm")).toBe(true);
   });
+  it("expandEarlyPayments: bimonthly recurring expands into dates 2 months apart", () => {
+    const list = [once({ kind: "recurring", frequency: "bimonthly", startDate: keyToYm(base.startMonthKey + 1), endDate: keyToYm(base.startMonthKey + 10) })];
+    const xs = expandEarlyPayments(list, base.startMonthKey, loanEnd);
+    expect(xs.map((x) => x.monthKey - base.startMonthKey)).toEqual([1, 3, 5, 7, 9]);
+  });
   it("expandEarlyPayments: recurring without endDate runs to the loan end", () => {
     const xs = expandEarlyPayments([once({ kind: "recurring", frequency: "yearly", startDate: keyToYm(base.startMonthKey) })], base.startMonthKey, loanEnd);
     expect(xs.length).toBe(15);

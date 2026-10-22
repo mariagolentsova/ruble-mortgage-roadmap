@@ -875,6 +875,7 @@ function MonthPicker({
 
 const FREQ_OPTIONS: [Frequency, string][] = [
   ["monthly", "Ежемесячно"],
+  ["bimonthly", "Раз в 2 месяца"],
   ["quarterly", "Ежеквартально"],
   ["semiannual", "Раз в полгода"],
   ["yearly", "Раз в год"],

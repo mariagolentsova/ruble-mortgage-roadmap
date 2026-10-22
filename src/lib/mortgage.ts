@@ -1,6 +1,6 @@
 // Pure annuity mortgage math. Values are never rounded here — only on display.
 
-export type Frequency = "monthly" | "quarterly" | "semiannual" | "yearly";
+export type Frequency = "monthly" | "bimonthly" | "quarterly" | "semiannual" | "yearly";
 export type Effect = "reduceTerm" | "reducePayment";
 
 export interface EarlyPayment {
@@ -16,7 +16,7 @@ export interface EarlyPayment {
   effect: Effect;
 }
 
-export const FREQ_STEP: Record<Frequency, number> = { monthly: 1, quarterly: 3, semiannual: 6, yearly: 12 };
+export const FREQ_STEP: Record<Frequency, number> = { monthly: 1, bimonthly: 2, quarterly: 3, semiannual: 6, yearly: 12 };
 
 /** 'YYYY-MM' → calendar month index (year * 12 + 0-based month). */
 export function ymToKey(ym: string): number {
