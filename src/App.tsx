@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Info, Plus, Trash2, Share2, Send, RotateCcw } from "lucide-react";
+import { ChevronDown, Info, Plus, Trash2, Share2, Save, RotateCcw, Loader2 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -28,6 +28,7 @@ import {
   type Frequency,
   type ScheduleRow,
 } from "@/lib/mortgage";
+import { buildCalculationRecord, saveCalculation, SAVE_MESSAGES } from "@/lib/saveCalculation";
 
 // Logos live in public/ and are served as-is by Nginx.
 const LOGO_MILK = "/logo-milk.png";
@@ -219,7 +220,7 @@ export default function Calculator() {
       const i = res.rows.findIndex((rw) => rw.monthKey === e.monthKey);
       if (i >= 0 && i + 1 < res.rows.length) paymentChanges.push(res.rows[i + 1]!.payment);
     }
-    return { S, res, baseline, paymentChanges };
+    return { S, n, r, start, prepays, res, baseline, paymentChanges };
   }, [debKey]);
 
   const onCalculate = () => {
@@ -275,6 +276,29 @@ export default function Calculator() {
     } catch {
       toast.error("Не удалось скопировать");
     }
+  };
+
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    if (!calc || saving) return;
+    const { S, n, r, start, prepays, res, baseline } = calc;
+    const record = buildCalculationRecord({
+      price,
+      downPayment: downRub,
+      loan: S,
+      months: n,
+      rate: r,
+      startMonthKey: start,
+      prepays,
+      result: res,
+      savedInterest: baseline ? baseline.totalInterest - res.totalInterest : 0,
+    });
+    setSaving(true);
+    const out = await saveCalculation(tg()?.initData, record);
+    setSaving(false);
+    if (out.ok) toast.success(out.created ? "Расчёт сохранён" : "Сохранённый расчёт обновлён");
+    else if (out.reason === "no-telegram") toast.info(SAVE_MESSAGES[out.reason]);
+    else toast.error(SAVE_MESSAGES[out.reason]);
   };
 
   const logo = theme === "gold" ? LOGO_GOLD : LOGO_MILK;
@@ -406,7 +430,7 @@ export default function Calculator() {
           {!shown || !calc ? (
             <EmptyState pending={shown && !calc} />
           ) : (
-            <Results calc={calc} onShare={share} />
+            <Results calc={calc} onShare={share} onSave={save} saving={saving} />
           )}
         </div>
       </main>
@@ -419,6 +443,8 @@ export default function Calculator() {
 function Results({
   calc,
   onShare,
+  onSave,
+  saving,
 }: {
   calc: {
     S: number;
@@ -427,6 +453,8 @@ function Results({
     paymentChanges: number[];
   };
   onShare: () => void;
+  onSave: () => void;
+  saving: boolean;
 }) {
   const { S, res, baseline, paymentChanges } = calc;
   const savedInterest = baseline ? baseline.totalInterest - res.totalInterest : 0;
@@ -513,10 +541,13 @@ function Results({
         </button>
         <button
           type="button"
-          onClick={() => toast.success("Заявка отправлена")}
-          className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-soft"
+          onClick={onSave}
+          disabled={saving}
+          aria-busy={saving}
+          className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-soft disabled:opacity-70"
         >
-          <Send className="h-4 w-4" /> Оставить заявку
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saving ? "Сохраняем…" : "Сохранить расчёт"}
         </button>
       </div>
     </div>

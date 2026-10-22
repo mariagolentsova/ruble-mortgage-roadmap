@@ -88,10 +88,10 @@ certbot --nginx -d your-domain.ru
 Версии пакетов зафиксированы в `package-lock.json`, поэтому каждая сборка
 получается одинаковой. После изменения зависимостей закоммитьте обновлённый lock-файл.
 
-## 7. Подключение к боту
+## 7. Telegram-бот
 
-В [@BotFather](https://t.me/BotFather): `/mybots` → ваш бот → **Bot Settings → Menu Button**
-(или **Configure Mini App**) → укажите `https://your-domain.ru`.
+Бот собран в n8n и работает на этом же сервере. Установка, настройка BotFather
+и проверка описаны в [BOT.md](BOT.md).
 
 ## Выкладка вручную, без GitHub Actions
 

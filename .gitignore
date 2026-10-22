@@ -21,3 +21,6 @@ dist
 *.njsproj
 *.sln
 *.sw?
+
+# n8n secrets
+deploy/n8n/.env

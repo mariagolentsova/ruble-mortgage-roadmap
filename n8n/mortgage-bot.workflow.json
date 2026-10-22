@@ -1,0 +1,566 @@
+{
+  "name": "Совесть — бот ипотечного калькулятора",
+  "nodes": [
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0001",
+      "name": "Telegram: новые сообщения",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "webhookId": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7dff01",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Telegram — бот Совесть"
+        }
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0002",
+      "name": "Разобрать апдейт",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// «Разобрать апдейт»: turns a Telegram update into one action for the bot.\n// Only private chats are answered; anything else produces no items and the run stops.\n\nconst MENU_CALC = '🧮 Калькулятор';\nconst MENU_ASK = '💬 Задать вопрос';\n\nconst update = $input.first().json;\nlet chatId = null;\nlet chatType = 'private';\nlet firstName = '';\nlet callbackId = null;\nlet action = 'unknown';\n\nif (update.callback_query) {\n  const cq = update.callback_query;\n  chatId = cq.message?.chat?.id ?? cq.from?.id ?? null;\n  chatType = cq.message?.chat?.type ?? 'private';\n  firstName = cq.from?.first_name ?? '';\n  callbackId = cq.id;\n  action = cq.data === 'retry_calc' ? 'retry' : 'unknown';\n} else if (update.message) {\n  const m = update.message;\n  chatId = m.chat?.id ?? null;\n  chatType = m.chat?.type ?? 'private';\n  firstName = m.from?.first_name ?? '';\n  const text = (m.text ?? '').trim();\n  if (/^\\/start(\\s|@|$)/.test(text)) action = 'start';\n  else if (text === MENU_CALC || /^\\/calc(\\s|@|$)/.test(text)) action = 'calculator';\n  else if (text === MENU_ASK || /^\\/(ask|help)(\\s|@|$)/.test(text)) action = 'question';\n}\n\nif (!chatId || chatType !== 'private') return [];\n\nreturn [\n  {\n    json: {\n      chatId,\n      firstName,\n      callbackId,\n      action,\n      // Only these actions show the calculator button, so only they need the availability check.\n      needsCheck: ['start', 'calculator', 'retry'].includes(action),\n    },\n  },\n];\n"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0003",
+      "name": "Нужна проверка калькулятора?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.needsCheck }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0004",
+      "name": "Проверить, открывается ли калькулятор",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        -100
+      ],
+      "parameters": {
+        "url": "={{ $env.CALCULATOR_URL }}",
+        "options": {
+          "timeout": 5000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0005",
+      "name": "Собрать ответ",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// «Собрать ответ»: decides what the bot sends. Each output item is one Bot API call\n// ({ method, payload }); the next node sends them in order.\n// Links and texts come from environment variables set in docker-compose (.env).\n\nconst MENU_CALC = '🧮 Калькулятор';\nconst MENU_ASK = '💬 Задать вопрос';\n\nconst p = $('Разобрать апдейт').first().json;\nconst calcUrl = $env.CALCULATOR_URL;\nconst policyUrl = $env.PD_POLICY_URL;\nconst consentUrl = $env.PD_CONSENT_URL;\nconst specialistUrl = $env.SPECIALIST_URL;\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\n// The calculator counts as available only if its page answered 2xx and is really our app.\nlet available = false;\nif (p.needsCheck) {\n  const r = $input.first().json;\n  const body = typeof r.body === 'string' ? r.body : typeof r.data === 'string' ? r.data : '';\n  available = !r.error && r.statusCode >= 200 && r.statusCode < 300 && body.includes('id=\"root\"');\n}\n\nconst menuKeyboard = {\n  keyboard: [[{ text: MENU_CALC }, { text: MENU_ASK }]],\n  resize_keyboard: true,\n  is_persistent: true,\n};\nconst calcButton = { inline_keyboard: [[{ text: '🧮 Открыть калькулятор', web_app: { url: calcUrl } }]] };\nconst retryButton = { inline_keyboard: [[{ text: '🔄 Повторить', callback_data: 'retry_calc' }]] };\n\nconst send = (text, reply_markup) => ({\n  json: {\n    method: 'sendMessage',\n    payload: { chat_id: p.chatId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup },\n  },\n});\n\nconst unavailable = () =>\n  send(\n    'Калькулятор сейчас не открывается — похоже, на сервере неполадки.\\n\\n' +\n      'Попробуйте ещё раз через пару минут: нажмите «Повторить».',\n    retryButton,\n  );\n\nconst welcomeText =\n  `Здравствуйте${p.firstName ? `, ${esc(p.firstName)}` : ''}! 👋\\n\\n` +\n  'Это ипотечный калькулятор центра недвижимости «Совесть». ' +\n  'Он покажет ежемесячный платёж, переплату и то, как досрочные погашения сокращают срок и проценты.\\n\\n' +\n  '⚠️ <b>Калькулятор носит ознакомительный характер.</b> Расчёт не является публичной офертой; ' +\n  'точные условия кредита определяет банк.\\n\\n' +\n  'Пользуясь ботом, вы соглашаетесь с ' +\n  `<a href=\"${esc(policyUrl)}\">политикой обработки персональных данных</a> и даёте ` +\n  `<a href=\"${esc(consentUrl)}\">согласие на обработку персональных данных</a>.`;\n\nconst out = [];\n\nif (p.callbackId) {\n  // Stops the loading spinner on the pressed inline button.\n  out.push({ json: { method: 'answerCallbackQuery', payload: { callback_query_id: p.callbackId } } });\n}\n\nswitch (p.action) {\n  case 'start':\n    if (available) {\n      out.push(send(welcomeText, calcButton));\n      out.push(send('Кнопки «Калькулятор» и «Задать вопрос» всегда под рукой — в меню внизу 👇', menuKeyboard));\n    } else {\n      out.push(send(welcomeText, menuKeyboard));\n      out.push(unavailable());\n    }\n    break;\n  case 'calculator':\n  case 'retry':\n    out.push(available ? send('Откройте калькулятор по кнопке ниже:', calcButton) : unavailable());\n    break;\n  case 'question':\n    out.push(\n      send(\n        'Ответим на вопросы об ипотеке, объектах и сделке. Напишите нашему специалисту — он ответит в личных сообщениях.',\n        { inline_keyboard: [[{ text: '✉️ Написать специалисту', url: specialistUrl }]] },\n      ),\n    );\n    break;\n  default:\n    out.push(send('Выберите действие в меню ниже 👇', menuKeyboard));\n}\n\nreturn out;\n"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0006",
+      "name": "Отправить в Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TELEGRAM_API_URL || 'https://api.telegram.org') + '/bot' + $env.TELEGRAM_BOT_TOKEN + '/' + $json.method }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 400
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0101",
+      "name": "Калькулятор: сохранить расчёт",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "save-calculation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7dff02"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0102",
+      "name": "Проверить подпись Telegram",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        400
+      ],
+      "parameters": {
+        "jsCode": "// «Проверить подпись Telegram»: validates Mini App initData (HMAC-SHA256 with the bot token,\n// https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app)\n// and turns the calculation into one Data Table row keyed by the Telegram user ID.\n// The user ID is taken only from the signed initData, never from the request body.\n\nconst crypto = require('crypto');\n\nconst MAX_AGE_SECONDS = 24 * 60 * 60;\nconst NUMBER_FIELDS = [\n  'price',\n  'down_payment',\n  'loan_amount',\n  'term_months',\n  'rate',\n  'monthly_payment',\n  'total_interest',\n  'overpayment_pct',\n  'total_paid',\n  'actual_term_months',\n  'prepaid_total',\n  'saved_interest',\n];\nconst STRING_FIELDS = ['start_month', 'prepayments', 'last_payment_month'];\n\nconst fail = (status, error) => [{ json: { valid: false, status, error } }];\n\nconst body = $input.first().json.body ?? {};\nconst token = $env.TELEGRAM_BOT_TOKEN;\nif (!token) return fail(500, 'bot_token_not_configured');\nif (typeof body.initData !== 'string' || !body.calculation || typeof body.calculation !== 'object') {\n  return fail(400, 'bad_request');\n}\n\n// 1. Signature. (URLSearchParams is not available in the Code-node sandbox, so parse by hand.)\nconst decode = (s) => {\n  try {\n    return decodeURIComponent(s.replace(/\\+/g, ' '));\n  } catch {\n    return null;\n  }\n};\nconst params = new Map();\nfor (const part of body.initData.split('&')) {\n  if (!part) continue;\n  const eq = part.indexOf('=');\n  const key = decode(eq < 0 ? part : part.slice(0, eq));\n  const value = decode(eq < 0 ? '' : part.slice(eq + 1));\n  if (key === null || value === null) return fail(401, 'bad_init_data');\n  params.set(key, value);\n}\nconst hash = params.get('hash');\nif (!hash) return fail(401, 'no_signature');\nparams.delete('hash');\nconst dataCheckString = [...params.entries()]\n  .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))\n  .map(([k, v]) => `${k}=${v}`)\n  .join('\\n');\nconst secret = crypto.createHmac('sha256', 'WebAppData').update(token).digest();\nconst expected = crypto.createHmac('sha256', secret).update(dataCheckString).digest('hex');\nif (expected.length !== hash.length || !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(hash))) {\n  return fail(401, 'bad_signature');\n}\n\n// 2. Freshness: initData older than a day is refused.\nconst authDate = Number(params.get('auth_date'));\nif (!Number.isFinite(authDate) || Date.now() / 1000 - authDate > MAX_AGE_SECONDS) return fail(401, 'expired');\n\n// 3. User.\nlet user;\ntry {\n  user = JSON.parse(params.get('user') ?? '');\n} catch {\n  return fail(401, 'no_user');\n}\nif (!user || !user.id) return fail(401, 'no_user');\n\n// 4. Calculation.\nconst c = body.calculation;\nconst row = {\n  telegram_id: String(user.id),\n  username: String(user.username ?? '').slice(0, 64),\n  first_name: String(user.first_name ?? '').slice(0, 128),\n  last_name: String(user.last_name ?? '').slice(0, 128),\n};\nfor (const k of NUMBER_FIELDS) {\n  const v = Number(c[k]);\n  if (!Number.isFinite(v) || v < 0 || v > 1e12) return fail(400, `bad_field_${k}`);\n  row[k] = v;\n}\nfor (const k of STRING_FIELDS) {\n  if (typeof c[k] !== 'string') return fail(400, `bad_field_${k}`);\n  row[k] = c[k].slice(0, 2000);\n}\nrow.saved_at = new Date().toISOString();\n\nreturn [{ json: { valid: true, row } }];\n"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0103",
+      "name": "Подпись верна?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0104",
+      "name": "Таблица: создать, если нет",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "mortgage_calculations",
+        "columns": {
+          "column": [
+            {
+              "name": "telegram_id",
+              "type": "string"
+            },
+            {
+              "name": "username",
+              "type": "string"
+            },
+            {
+              "name": "first_name",
+              "type": "string"
+            },
+            {
+              "name": "last_name",
+              "type": "string"
+            },
+            {
+              "name": "price",
+              "type": "number"
+            },
+            {
+              "name": "down_payment",
+              "type": "number"
+            },
+            {
+              "name": "loan_amount",
+              "type": "number"
+            },
+            {
+              "name": "term_months",
+              "type": "number"
+            },
+            {
+              "name": "rate",
+              "type": "number"
+            },
+            {
+              "name": "start_month",
+              "type": "string"
+            },
+            {
+              "name": "prepayments",
+              "type": "string"
+            },
+            {
+              "name": "monthly_payment",
+              "type": "number"
+            },
+            {
+              "name": "total_interest",
+              "type": "number"
+            },
+            {
+              "name": "overpayment_pct",
+              "type": "number"
+            },
+            {
+              "name": "total_paid",
+              "type": "number"
+            },
+            {
+              "name": "actual_term_months",
+              "type": "number"
+            },
+            {
+              "name": "last_payment_month",
+              "type": "string"
+            },
+            {
+              "name": "prepaid_total",
+              "type": "number"
+            },
+            {
+              "name": "saved_interest",
+              "type": "number"
+            },
+            {
+              "name": "saved_at",
+              "type": "date"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0105",
+      "name": "Взять запись",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('Проверить подпись Telegram').first().json.row }];"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0106",
+      "name": "Таблица: создать или обновить запись",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "mortgage_calculations"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.telegram_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0107",
+      "name": "Ответ: сохранено",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1440,
+        280
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, created: new Date($json.createdAt).getTime() === new Date($json.updatedAt).getTime() }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0108",
+      "name": "Ответ: отказ",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        720,
+        520
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: $json.error }) }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0109",
+      "name": "Ответ: ошибка таблицы",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1440,
+        480
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: \"storage_failed\" }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram: новые сообщения": {
+      "main": [
+        [
+          {
+            "node": "Разобрать апдейт",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разобрать апдейт": {
+      "main": [
+        [
+          {
+            "node": "Нужна проверка калькулятора?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Нужна проверка калькулятора?": {
+      "main": [
+        [
+          {
+            "node": "Проверить, открывается ли калькулятор",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Собрать ответ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Проверить, открывается ли калькулятор": {
+      "main": [
+        [
+          {
+            "node": "Собрать ответ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Собрать ответ": {
+      "main": [
+        [
+          {
+            "node": "Отправить в Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Калькулятор: сохранить расчёт": {
+      "main": [
+        [
+          {
+            "node": "Проверить подпись Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Проверить подпись Telegram": {
+      "main": [
+        [
+          {
+            "node": "Подпись верна?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подпись верна?": {
+      "main": [
+        [
+          {
+            "node": "Таблица: создать, если нет",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ответ: отказ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Таблица: создать, если нет": {
+      "main": [
+        [
+          {
+            "node": "Взять запись",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ответ: ошибка таблицы",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Взять запись": {
+      "main": [
+        [
+          {
+            "node": "Таблица: создать или обновить запись",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Таблица: создать или обновить запись": {
+      "main": [
+        [
+          {
+            "node": "Ответ: сохранено",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ответ: ошибка таблицы",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {}
+}
