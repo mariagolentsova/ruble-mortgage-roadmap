@@ -11,6 +11,21 @@ const code = (name) => readFileSync(join(dir, "code", name), "utf8");
 
 export const TABLE_NAME = "mortgage_calculations";
 
+export const USERS_TABLE_NAME = "bot_users";
+
+// Only what Telegram sends with each update; createdAt / updatedAt (system columns) = first / last visit.
+export const USERS_TABLE_COLUMNS = [
+  ["telegram_id", "string"],
+  ["username", "string"],
+  ["profile_link", "string"],
+  ["first_name", "string"],
+  ["last_name", "string"],
+  ["language_code", "string"],
+  ["is_premium", "boolean"],
+  ["last_action", "string"],
+  ["last_seen_at", "date"],
+];
+
 export const TABLE_COLUMNS = [
   ["telegram_id", "string"],
   ["username", "string"],
@@ -116,20 +131,60 @@ const nodes = [
     { onError: "continueRegularOutput" },
   ),
 
+  // ---------- Bot users (runs after the reply, never blocks it) ----------
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0201", "Карточка пользователя", "n8n-nodes-base.code", 2, [480, 200], {
+    jsCode: code("user-row.js"),
+  }),
+  node(
+    "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0202",
+    "Пользователи: создать таблицу, если нет",
+    "n8n-nodes-base.dataTable",
+    1.1,
+    [720, 200],
+    {
+      resource: "table",
+      operation: "create",
+      tableName: USERS_TABLE_NAME,
+      columns: { column: USERS_TABLE_COLUMNS.map(([name, type]) => ({ name, type })) },
+      options: { createIfNotExists: true },
+    },
+    { onError: "continueRegularOutput" },
+  ),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0203", "Взять карточку", "n8n-nodes-base.code", 2, [960, 200], {
+    jsCode: "return $('Карточка пользователя').all();",
+  }),
+  node(
+    "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0204",
+    "Пользователи: создать или обновить",
+    "n8n-nodes-base.dataTable",
+    1.1,
+    [1200, 200],
+    {
+      resource: "row",
+      operation: "upsert",
+      dataTableId: { __rl: true, mode: "name", value: USERS_TABLE_NAME },
+      matchType: "allConditions",
+      filters: { conditions: [{ keyName: "telegram_id", condition: "eq", keyValue: "={{ $json.telegram_id }}" }] },
+      columns: { mappingMode: "autoMapInputData", value: {}, matchingColumns: [], schema: [] },
+      options: {},
+    },
+    { onError: "continueRegularOutput" },
+  ),
+
   // ---------- Save calculation ----------
   node(
     "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0101",
     "Калькулятор: сохранить расчёт",
     "n8n-nodes-base.webhook",
     2.1,
-    [0, 400],
+    [0, 480],
     { httpMethod: "POST", path: "save-calculation", responseMode: "responseNode", options: {} },
     { webhookId: "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7dff02" },
   ),
-  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0102", "Проверить подпись Telegram", "n8n-nodes-base.code", 2, [240, 400], {
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0102", "Проверить подпись Telegram", "n8n-nodes-base.code", 2, [240, 480], {
     jsCode: code("verify-and-prepare.js"),
   }),
-  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0103", "Подпись верна?", "n8n-nodes-base.if", 2.2, [480, 400], {
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0103", "Подпись верна?", "n8n-nodes-base.if", 2.2, [480, 480], {
     conditions: {
       options: { caseSensitive: true, leftValue: "", typeValidation: "strict", version: 2 },
       conditions: [
@@ -149,7 +204,7 @@ const nodes = [
     "Таблица: создать, если нет",
     "n8n-nodes-base.dataTable",
     1.1,
-    [720, 300],
+    [720, 380],
     {
       resource: "table",
       operation: "create",
@@ -159,7 +214,7 @@ const nodes = [
     },
     { onError: "continueErrorOutput" },
   ),
-  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0105", "Взять запись", "n8n-nodes-base.code", 2, [960, 300], {
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0105", "Взять запись", "n8n-nodes-base.code", 2, [960, 380], {
     jsCode: "return [{ json: $('Проверить подпись Telegram').first().json.row }];",
   }),
   node(
@@ -167,7 +222,7 @@ const nodes = [
     "Таблица: создать или обновить запись",
     "n8n-nodes-base.dataTable",
     1.1,
-    [1200, 300],
+    [1200, 380],
     {
       resource: "row",
       operation: "upsert",
@@ -179,18 +234,18 @@ const nodes = [
     },
     { onError: "continueErrorOutput" },
   ),
-  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0107", "Ответ: сохранено", "n8n-nodes-base.respondToWebhook", 1.4, [1440, 280], {
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0107", "Ответ: сохранено", "n8n-nodes-base.respondToWebhook", 1.4, [1440, 360], {
     respondWith: "json",
     responseBody:
       "={{ JSON.stringify({ ok: true, created: new Date($json.createdAt).getTime() === new Date($json.updatedAt).getTime() }) }}",
     options: { responseCode: 200 },
   }),
-  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0108", "Ответ: отказ", "n8n-nodes-base.respondToWebhook", 1.4, [720, 520], {
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0108", "Ответ: отказ", "n8n-nodes-base.respondToWebhook", 1.4, [720, 600], {
     respondWith: "json",
     responseBody: "={{ JSON.stringify({ ok: false, error: $json.error }) }}",
     options: { responseCode: "={{ $json.status }}" },
   }),
-  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0109", "Ответ: ошибка таблицы", "n8n-nodes-base.respondToWebhook", 1.4, [1440, 480], {
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0109", "Ответ: ошибка таблицы", "n8n-nodes-base.respondToWebhook", 1.4, [1440, 560], {
     respondWith: "json",
     responseBody: '={{ JSON.stringify({ ok: false, error: "storage_failed" }) }}',
     options: { responseCode: 500 },
@@ -201,7 +256,18 @@ const main = (...targets) => ({ main: targets.map((t) => (t ? [{ node: t, type: 
 
 const connections = {
   "Telegram: новые сообщения": main("Разобрать апдейт"),
-  "Разобрать апдейт": main("Нужна проверка калькулятора?"),
+  // One output, two branches: the reply (upper, runs first) and the user card (lower).
+  "Разобрать апдейт": {
+    main: [
+      [
+        { node: "Нужна проверка калькулятора?", type: "main", index: 0 },
+        { node: "Карточка пользователя", type: "main", index: 0 },
+      ],
+    ],
+  },
+  "Карточка пользователя": main("Пользователи: создать таблицу, если нет"),
+  "Пользователи: создать таблицу, если нет": main("Взять карточку"),
+  "Взять карточку": main("Пользователи: создать или обновить"),
   "Нужна проверка калькулятора?": main("Проверить, открывается ли калькулятор", "Собрать ответ"),
   "Проверить, открывается ли калькулятор": main("Собрать ответ"),
   "Собрать ответ": main("Отправить в Telegram"),
