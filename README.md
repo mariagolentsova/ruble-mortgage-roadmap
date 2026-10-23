@@ -1,24 +1,36 @@
-# Ruble Mortgage Roadmap
+# Ипотечный калькулятор — Совесть
 
-Implement exactly the screenshot and nothing else
+Telegram Mini App: ежемесячный платёж, переплата, досрочные погашения и график платежей.
+Статический SPA на Vite + React + Tailwind — все расчёты выполняются в браузере, сервер не нужен.
 
-This project was built with [Lovable](https://lovable.dev).
+## Разработка
 
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/2512cf39-e992-4f9e-8688-fd725af309e3).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Нужен Node.js 24 (с npm 11 — в npm 10 установка зависимостей падает с ошибкой `edgesOut`).
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+npm install
+npm run dev       # локальный сервер разработки
+npm test          # тесты расчётов (src/lib/mortgage.test.ts)
+npm run build     # сборка в dist/
+npm run preview   # посмотреть собранную версию
 ```
+
+## Структура
+
+```
+index.html                 HTML-оболочка, шрифты, Telegram WebApp API
+src/main.tsx               точка входа
+src/App.tsx                экран калькулятора
+src/lib/mortgage.ts        расчёт аннуитета и досрочных погашений
+src/components/mortgage/   графики
+src/components/ui/         используемые компоненты (shadcn/radix)
+public/                    статика: favicon, логотипы
+deploy/nginx.conf          конфиг Nginx для VPS (калькулятор + n8n)
+deploy/n8n/                docker-compose и .env.example для n8n
+n8n/                       workflow бота: исходники Code-узлов и сборка JSON
+```
+
+## Выкладка
+
+Подробно — в [DEPLOY.md](DEPLOY.md), бот в n8n — в [BOT.md](BOT.md). Коротко: push в `main` → GitHub Actions собирает
+проект и копирует `dist/` на сервер, где его отдаёт Nginx.

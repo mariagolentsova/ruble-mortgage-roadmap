@@ -1,0 +1,45 @@
+# Calculator for the Beget n8n server: a tiny Nginx container behind Beget's traefik.
+# Lives in /opt/mortgage, separate from Beget's /opt/beget/n8n, so Beget updates don't touch it.
+# Start / apply changes:  cd /opt/mortgage && docker compose up -d
+#
+# The calculator is served at https://<n8n domain>/calc/ — the only domain that points at this
+# server (Beget's technical domains for shared hosting can't be repointed). traefik sends /calc/*
+# here and everything else to n8n, as before. With your own domain later: set CALC_DOMAIN in
+# .env and change the rule to Host(`${CALC_DOMAIN}`) without the path part.
+#
+# GitHub Actions uploads the built site into ./site.
+
+name: mortgage
+
+services:
+  calculator:
+    image: nginx:1.27-alpine
+    restart: always
+    mem_limit: 64m
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - n8n
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_default
+      - traefik.http.routers.mortgage.rule=Host(`${CALC_DOMAIN:-yatiltegtumud.beget.app}`) && (Path(`/calc`) || PathPrefix(`/calc/`))
+      # Higher than n8n's own Host-only rule, so /calc never reaches n8n.
+      - traefik.http.routers.mortgage.priority=1000
+      - traefik.http.routers.mortgage.entrypoints=web,websecure
+      - traefik.http.routers.mortgage.tls=true
+      - traefik.http.routers.mortgage.tls.certresolver=mytlschallenge
+      - traefik.http.routers.mortgage.middlewares=mortgage-slash,mortgage-strip
+      # /calc → /calc/ (the app's files are addressed relative to the trailing slash).
+      - traefik.http.middlewares.mortgage-slash.redirectregex.regex=^(https?://[^/]+/calc)$$
+      - traefik.http.middlewares.mortgage-slash.redirectregex.replacement=$${1}/
+      - traefik.http.middlewares.mortgage-slash.redirectregex.permanent=true
+      # The container sees /calc/x as /x, so its Nginx config stays domain-root style.
+      - traefik.http.middlewares.mortgage-strip.stripprefix.prefixes=/calc
+      - traefik.http.services.mortgage.loadbalancer.server.port=80
+
+networks:
+  n8n:
+    name: n8n_default
+    external: true

@@ -1,10 +1,9 @@
-<!-- LOVABLE:BEGIN -->
-> [!IMPORTANT]
-> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
-> published git history — force pushing, or rebasing/amending/squashing commits
-> that are already pushed — as it rewrites history on Lovable's side and the
-> user will likely lose their project history.
->
-> Commits you push to the connected branch sync back to Lovable and show up in
-> the editor, so keep the branch in a working state.
-<!-- LOVABLE:END -->
+# Notes for coding agents
+
+- Static single-page app: Vite + React + Tailwind v4. No server, no SSR, no router.
+- Whole UI is `src/App.tsx`; all mortgage math is in `src/lib/mortgage.ts` (covered by `src/lib/mortgage.test.ts`).
+- Build output `dist/` is deployed to a VPS and served by Nginx (see DEPLOY.md, deploy/nginx.conf).
+- Logos are plain files in `public/` (`/logo-milk.png`, `/logo-gold.png`).
+- "Сохранить расчёт" posts Telegram initData + a flat record (`src/lib/saveCalculation.ts`) to `/api/save-calculation`; Nginx proxies it to the n8n webhook.
+- The Telegram bot is an n8n workflow. Edit Code-node sources in `n8n/code/`, then run `node n8n/build-workflow.mjs` to regenerate `n8n/mortgage-bot.workflow.json`. See BOT.md.
+- n8n Code nodes run in a sandbox without URLSearchParams; only the `crypto` builtin is allowed.
