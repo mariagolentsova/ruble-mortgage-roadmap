@@ -49,46 +49,20 @@ type FormState = {
   prepayOpen: boolean;
 };
 
-const STORAGE = "mortgage-form-v1";
+/** Key used by earlier versions to remember the form; now only cleared on open. */
+const OLD_STORAGE = "mortgage-form-v1";
+// The calculator always opens empty: no sample numbers, nothing restored from a previous visit.
 const defaults = (): FormState => ({
-  price: "8000000",
-  down: "1500000",
+  price: "",
+  down: "",
   downUnit: "rub",
-  term: "15",
+  term: "",
   termUnit: "y",
-  rate: "6",
+  rate: "",
   startKey: monthKeyOf(new Date()),
   prepays: [],
   prepayOpen: false,
 });
-
-/** Saved form may predate the recurring model ({monthKey, type}) — upgrade it silently. */
-function normalizePrepay(x: unknown): EarlyPayment | null {
-  if (!x || typeof x !== "object") return null;
-  const p = x as Partial<EarlyPayment> & { monthKey?: number; type?: string };
-  if ((p.kind === "once" || p.kind === "recurring") && typeof p.startDate === "string") {
-    const out: EarlyPayment = {
-      id: p.id ?? uid(),
-      kind: p.kind,
-      startDate: p.startDate,
-      amount: Number(p.amount) || 0,
-      effect: p.effect === "reducePayment" ? "reducePayment" : "reduceTerm",
-    };
-    if (p.endDate) out.endDate = p.endDate;
-    if (p.frequency) out.frequency = p.frequency;
-    return out;
-  }
-  if (typeof p.monthKey === "number") {
-    return {
-      id: p.id ?? uid(),
-      kind: "once",
-      startDate: keyToYm(p.monthKey),
-      amount: Number(p.amount) || 0,
-      effect: p.type === "payment" ? "reducePayment" : "reduceTerm",
-    };
-  }
-  return null;
-}
 
 type TgWebApp = {
   ready: () => void;
@@ -114,24 +88,17 @@ export default function Calculator() {
   const [shown, setShown] = useState(false);
   const [theme, setTheme] = useState<"milk" | "gold">("milk");
   const resultsRef = useRef<HTMLDivElement>(null);
-  const loaded = useRef(false);
+  // Errors appear only for a field the person has left, or after «Рассчитать» — never on an untouched empty form.
+  const [submitted, setSubmitted] = useState(false);
+  const [touched, setTouched] = useState<Partial<Record<"price" | "down" | "term" | "rate", boolean>>>({});
+  const touch = (k: "price" | "down" | "term" | "rate") => setTouched((t) => (t[k] ? t : { ...t, [k]: true }));
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE);
-      if (raw) {
-        const s = JSON.parse(raw) as { form?: Partial<FormState> & { prepays?: unknown[] }; shown?: boolean };
-        setF({
-          ...defaults(),
-          ...s.form,
-          prepays: Array.isArray(s.form?.prepays) ? (s.form.prepays.map(normalizePrepay).filter(Boolean) as EarlyPayment[]) : [],
-        });
-        setShown(!!s.shown);
-      }
+      localStorage.removeItem(OLD_STORAGE); // drop numbers a previous version may have kept
     } catch {
-      /* ignore */
+      /* storage unavailable */
     }
-    loaded.current = true;
     const t = (document.documentElement.dataset["theme"] as "milk" | "gold") || "milk";
     setTheme(t);
     const obs = new MutationObserver(() => setTheme((document.documentElement.dataset["theme"] as "milk" | "gold") || "milk"));
@@ -149,15 +116,6 @@ export default function Calculator() {
     }
     return () => obs.disconnect();
   }, []);
-
-  useEffect(() => {
-    if (!loaded.current) return;
-    try {
-      localStorage.setItem(STORAGE, JSON.stringify({ form: f, shown }));
-    } catch {
-      /* storage blocked (private mode, some WebViews) — the form still works, it just isn't remembered */
-    }
-  }, [f, shown]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((p) => ({ ...p, [k]: v }));
 
@@ -181,6 +139,7 @@ export default function Calculator() {
   if (!Number.isFinite(rate)) errors.rate = "Введите ставку";
   else if (rate < 0.01 || rate > 100) errors.rate = "От 0,01 до 100 %";
   const valid = Object.keys(errors).length === 0;
+  const shownErr = (k: "price" | "down" | "term" | "rate") => (submitted || touched[k] ? errors[k] : undefined);
   const lowDown = valid && downRub < price * 0.2;
 
   /* ---- early prepayments ---- */
@@ -224,6 +183,7 @@ export default function Calculator() {
   }, [debKey]);
 
   const onCalculate = () => {
+    setSubmitted(true);
     if (!valid) {
       toast.error("Проверьте поля формы");
       return;
@@ -236,6 +196,8 @@ export default function Calculator() {
   const onReset = () => {
     setF(defaults());
     setShown(false);
+    setSubmitted(false);
+    setTouched({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -315,13 +277,13 @@ export default function Calculator() {
       <main className="safe-bottom space-y-4 px-4 pt-4">
         {/* Parameters */}
         <Card title="Параметры">
-          <Field label="Стоимость недвижимости" error={errors.price}>
-            <NumInput value={f.price} onChange={(v) => set("price", v)} suffix="₽" invalid={!!errors.price} integer />
+          <Field label="Стоимость недвижимости" error={shownErr("price")}>
+            <NumInput value={f.price} onChange={(v) => set("price", v)} suffix="₽" invalid={!!shownErr("price")} onBlur={() => touch("price")} integer />
           </Field>
 
           <Field
             label="Первоначальный взнос"
-            error={errors.down}
+            error={shownErr("down")}
             hint={
               !errors.down && Number.isFinite(downRub) && price > 0
                 ? f.downUnit === "rub"
@@ -335,7 +297,8 @@ export default function Calculator() {
               <NumInput
                 value={f.down}
                 onChange={(v) => set("down", v)}
-                invalid={!!errors.down}
+                invalid={!!shownErr("down")}
+                onBlur={() => touch("down")}
                 integer={f.downUnit === "rub"}
               />
               <Segmented value={f.downUnit} onChange={toggleDownUnit} options={[["rub", "₽"], ["pct", "%"]]} />
@@ -347,9 +310,9 @@ export default function Calculator() {
             <div className="text-xl font-bold">{valid ? `${fmtInt(loan)} ₽` : "—"}</div>
           </div>
 
-          <Field label="Срок кредита" error={errors.term}>
+          <Field label="Срок кредита" error={shownErr("term")}>
             <div className="flex gap-2">
-              <NumInput value={f.term} onChange={(v) => set("term", v)} invalid={!!errors.term} integer />
+              <NumInput value={f.term} onChange={(v) => set("term", v)} invalid={!!shownErr("term")} onBlur={() => touch("term")} integer />
               <Segmented value={f.termUnit} onChange={toggleTermUnit} options={[["y", "лет"], ["m", "мес."]]} />
             </div>
             <Slider
@@ -362,8 +325,8 @@ export default function Calculator() {
             />
           </Field>
 
-          <Field label="Процентная ставка" error={errors.rate}>
-            <NumInput value={f.rate} onChange={(v) => set("rate", v)} suffix="%" invalid={!!errors.rate} />
+          <Field label="Процентная ставка" error={shownErr("rate")}>
+            <NumInput value={f.rate} onChange={(v) => set("rate", v)} suffix="%" invalid={!!shownErr("rate")} onBlur={() => touch("rate")} />
           </Field>
 
           <Field label="Начало выплат">
@@ -387,7 +350,8 @@ export default function Calculator() {
                   key={p.id}
                   p={p}
                   index={i}
-                  error={prepayErrors[i] ?? undefined}
+                  error={submitted ? (prepayErrors[i] ?? undefined) : undefined}
+                  showErrors={submitted}
                   closesLoan={closesLoan(p)}
                   onChange={(np) => set("prepays", f.prepays.map((x) => (x.id === p.id ? np : x)))}
                   onRemove={() => set("prepays", f.prepays.filter((x) => x.id !== p.id))}
@@ -398,7 +362,7 @@ export default function Calculator() {
                 onClick={() =>
                   set("prepays", [
                     ...f.prepays,
-                    { id: uid(), kind: "once", startDate: keyToYm(f.startKey + 12), amount: 500_000, effect: "reduceTerm" },
+                    { id: uid(), kind: "once", startDate: keyToYm(f.startKey + 12), amount: 0, effect: "reduceTerm" },
                   ])
                 }
                 className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-dashed border-input text-sm font-medium"
@@ -788,12 +752,14 @@ function NumInput({
   suffix,
   invalid,
   integer,
+  onBlur,
 }: {
   value: string;
   onChange: (v: string) => void;
   suffix?: string;
   invalid?: boolean;
   integer?: boolean;
+  onBlur?: () => void;
 }) {
   const display = integer ? groupDigits(value) : value.replace(".", ",");
   return (
@@ -810,6 +776,7 @@ function NumInput({
           const cleaned = integer ? raw.replace(/\D/g, "") : raw.replace(/[^\d.,]/g, "").replace(",", ".");
           onChange(cleaned);
         }}
+        onBlur={onBlur}
         className="w-full min-w-0 bg-transparent text-base font-semibold outline-none"
       />
       {suffix && <span className="ml-2 text-muted-foreground">{suffix}</span>}
@@ -921,6 +888,7 @@ function PrepayCard({
   index,
   error,
   closesLoan,
+  showErrors,
   onChange,
   onRemove,
 }: {
@@ -928,6 +896,7 @@ function PrepayCard({
   index: number;
   error?: string | undefined;
   closesLoan: boolean;
+  showErrors: boolean;
   onChange: (p: EarlyPayment) => void;
   onRemove: () => void;
 }) {
@@ -1012,7 +981,7 @@ function PrepayCard({
           onChange={(v) => onChange({ ...p, amount: parseNum(v) || 0 })}
           suffix="₽"
           integer
-          invalid={!(p.amount > 0)}
+          invalid={showErrors && !(p.amount > 0)}
         />
       </div>
 
