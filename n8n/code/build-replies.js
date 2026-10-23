@@ -64,7 +64,8 @@ switch (p.action) {
   case 'start':
     if (available) {
       out.push(send(welcomeText, calcButton));
-      out.push(send('Кнопки «Калькулятор» и «Задать вопрос» всегда под рукой — в меню внизу 👇', menuKeyboard));
+      // A message carries either buttons under it or the bottom menu, so the menu comes in a short second message.
+      out.push(send('Меню 👇', menuKeyboard));
     } else {
       out.push(send(welcomeText, menuKeyboard));
       out.push(unavailable());
