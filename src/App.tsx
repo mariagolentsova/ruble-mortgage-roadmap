@@ -30,9 +30,9 @@ import {
 } from "@/lib/mortgage";
 import { buildCalculationRecord, saveCalculation, SAVE_MESSAGES } from "@/lib/saveCalculation";
 
-// Logos live in public/ and are served as-is by Nginx.
-const LOGO_MILK = "/logo-milk.png";
-const LOGO_GOLD = "/logo-gold.png";
+// Logos live in public/. Relative paths, so the app works at / and under a prefix like /calc/.
+const LOGO_MILK = "logo-milk.png";
+const LOGO_GOLD = "logo-gold.png";
 
 
 /* ---------- state ---------- */

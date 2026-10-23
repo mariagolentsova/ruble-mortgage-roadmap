@@ -18,7 +18,7 @@ let available = false;
 if (p.needsCheck) {
   const r = $input.first().json;
   const body = typeof r.body === 'string' ? r.body : typeof r.data === 'string' ? r.data : '';
-  available = !r.error && r.statusCode >= 200 && r.statusCode < 300 && body.includes('id="root"');
+  available = !r.error && r.statusCode >= 200 && r.statusCode < 300 && body.includes('sovest-mortgage-calculator');
 }
 
 const menuKeyboard = {

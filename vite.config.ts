@@ -7,6 +7,8 @@ import path from "node:path";
 // which Nginx serves directly. No Node.js process runs on the server.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Relative asset paths: the same build works at a domain root and under a prefix (e.g. /calc/).
+  base: "./",
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },

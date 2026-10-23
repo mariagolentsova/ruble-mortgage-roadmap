@@ -3,8 +3,11 @@
 
 import { fmtInt, keyToYm, type EarlyPayment, type ScheduleResult } from "./mortgage";
 
-/** Same-origin path; Nginx proxies it to the n8n webhook. Override with VITE_SAVE_URL for local tests. */
-export const SAVE_URL: string = import.meta.env["VITE_SAVE_URL"] ?? "/api/save-calculation";
+/**
+ * Relative to the page, so it works at / and under a prefix like /calc/ (→ /calc/api/save-calculation).
+ * The calculator's Nginx proxies it to the n8n webhook. Override with VITE_SAVE_URL for local tests.
+ */
+export const SAVE_URL: string = import.meta.env["VITE_SAVE_URL"] ?? "api/save-calculation";
 
 export interface CalculationInput {
   price: number;
