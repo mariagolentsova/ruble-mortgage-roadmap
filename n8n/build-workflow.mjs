@@ -107,6 +107,12 @@ const nodes = [
     },
     { onError: "continueRegularOutput", alwaysOutputData: true },
   ),
+  // Sends replies one at a time: the next message goes out only after Telegram confirmed the previous one,
+  // so a short message can't overtake a long one.
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0007", "По одному сообщению", "n8n-nodes-base.splitInBatches", 3, [1200, 0], {
+    batchSize: 1,
+    options: {},
+  }),
   node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0005", "Собрать ответ", "n8n-nodes-base.code", 2, [960, 0], {
     jsCode: code("build-replies.js"),
   }),
@@ -115,18 +121,14 @@ const nodes = [
     "Отправить в Telegram",
     "n8n-nodes-base.httpRequest",
     4.2,
-    [1200, 0],
+    [1440, 0],
     {
       method: "POST",
       url: "={{ ($env.TELEGRAM_API_URL || 'https://api.telegram.org') + '/bot' + $env.TELEGRAM_BOT_TOKEN + '/' + $json.method }}",
       sendBody: true,
       specifyBody: "json",
       jsonBody: "={{ JSON.stringify($json.payload) }}",
-      options: {
-        // One request at a time with a pause, so messages arrive in the intended order.
-        batching: { batch: { batchSize: 1, batchInterval: 400 } },
-        timeout: 10000,
-      },
+      options: { timeout: 10000 },
     },
     { onError: "continueRegularOutput" },
   ),
@@ -270,7 +272,10 @@ const connections = {
   "Взять карточку": main("Пользователи: создать или обновить"),
   "Нужна проверка калькулятора?": main("Проверить, открывается ли калькулятор", "Собрать ответ"),
   "Проверить, открывается ли калькулятор": main("Собрать ответ"),
-  "Собрать ответ": main("Отправить в Telegram"),
+  "Собрать ответ": main("По одному сообщению"),
+  // Output 0 = done (nothing more to do), output 1 = next message.
+  "По одному сообщению": main(null, "Отправить в Telegram"),
+  "Отправить в Telegram": main("По одному сообщению"),
 
   "Калькулятор: сохранить расчёт": main("Проверить подпись Telegram"),
   "Проверить подпись Telegram": main("Подпись верна?"),
