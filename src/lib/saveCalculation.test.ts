@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildSchedule, keyToYm, type EarlyPayment } from "./mortgage";
-import { buildCalculationRecord, describePrepayment, saveCalculation } from "./saveCalculation";
+import { buildCalculationRecord, describePrepayment, formatCalculationText, saveCalculation } from "./saveCalculation";
 
 const start = 2026 * 12 + 9; // October 2026
 const result = buildSchedule({ principal: 6_500_000, months: 180, annualRate: 6, startMonthKey: start });
@@ -72,5 +72,18 @@ describe("saveCalculation", () => {
       ok: false,
       reason: "network",
     });
+  });
+});
+
+describe("formatCalculationText", () => {
+  it("lists parameters, results and the disclaimer", () => {
+    const t = formatCalculationText(record);
+    expect(t).toContain("Сумма кредита: 6 500 000 ₽");
+    expect(t).toContain("Срок: 15 лет, ставка 6,00 %");
+    expect(t).toContain("Начало выплат: октябрь 2026");
+    expect(t).toContain("Ежемесячный платёж: 54 850,69 ₽");
+    expect(t).toContain("Последний платёж: сентябрь 2041");
+    expect(t).toContain("не является публичной офертой");
+    expect(t).not.toContain("Досрочные");
   });
 });
