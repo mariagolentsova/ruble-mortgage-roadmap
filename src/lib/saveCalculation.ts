@@ -1,7 +1,17 @@
 // Builds the "Сохранить расчёт" payload and sends it to the bot backend (n8n).
 // The user is identified on the server from Telegram initData, never from this payload.
 
-import { fmtInt, keyToYm, type EarlyPayment, type ScheduleResult } from "./mortgage";
+import {
+  fmtInt,
+  fmtMoney,
+  fmtPct,
+  formatMonthLong,
+  formatTermRu,
+  keyToYm,
+  ymToKey,
+  type EarlyPayment,
+  type ScheduleResult,
+} from "./mortgage";
 
 /**
  * Relative to the page, so it works at / and under a prefix like /calc/ (→ /calc/api/save-calculation).
@@ -80,6 +90,37 @@ export function buildCalculationRecord(c: CalculationInput): CalculationRecord {
     prepaid_total: round2(r.totalPrepaid),
     saved_interest: round2(c.savedInterest),
   };
+}
+
+/** Human-readable calculation for the clipboard and for sharing. */
+export function formatCalculationText(r: CalculationRecord): string {
+  const money = (v: number) => `${fmtMoney(v)} ₽`;
+  const lines = [
+    "Ипотечный расчёт — центр недвижимости «Совесть»",
+    "",
+    `Стоимость недвижимости: ${fmtInt(r.price)} ₽`,
+    `Первоначальный взнос: ${fmtInt(r.down_payment)} ₽`,
+    `Сумма кредита: ${fmtInt(r.loan_amount)} ₽`,
+    `Срок: ${formatTermRu(r.term_months)}, ставка ${fmtPct(r.rate)} %`,
+    `Начало выплат: ${formatMonthLong(ymToKey(r.start_month))}`,
+    "",
+    `Ежемесячный платёж: ${money(r.monthly_payment)}`,
+    `Проценты по кредиту: ${money(r.total_interest)}`,
+    `Переплата: ${fmtPct(r.overpayment_pct)} %`,
+    `Кредит + проценты: ${money(r.total_paid)}`,
+    `Последний платёж: ${formatMonthLong(ymToKey(r.last_payment_month))}`,
+  ];
+  if (r.prepaid_total > 0) {
+    lines.push(
+      "",
+      `Досрочные погашения: ${r.prepayments}`,
+      `Сумма досрочных погашений: ${money(r.prepaid_total)}`,
+      `Экономия на процентах: ${money(r.saved_interest)}`,
+      `Фактический срок: ${formatTermRu(r.actual_term_months)}`,
+    );
+  }
+  lines.push("", "Расчёт носит ознакомительный характер и не является публичной офертой.");
+  return lines.join("\n");
 }
 
 export type SaveOutcome =

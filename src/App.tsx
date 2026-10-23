@@ -28,7 +28,8 @@ import {
   type Frequency,
   type ScheduleRow,
 } from "@/lib/mortgage";
-import { buildCalculationRecord, saveCalculation, SAVE_MESSAGES } from "@/lib/saveCalculation";
+import { buildCalculationRecord, formatCalculationText, saveCalculation, SAVE_MESSAGES } from "@/lib/saveCalculation";
+import { copyText } from "@/lib/clipboard";
 
 // Logos live in public/. Relative paths, so the app works at / and under a prefix like /calc/.
 const LOGO_MILK = "logo-milk.png";
@@ -140,7 +141,9 @@ export default function Calculator() {
   else if (rate < 0.01 || rate > 100) errors.rate = "От 0,01 до 100 %";
   const valid = Object.keys(errors).length === 0;
   const shownErr = (k: "price" | "down" | "term" | "rate") => (submitted || touched[k] ? errors[k] : undefined);
-  const lowDown = valid && downRub < price * 0.2;
+  // The loan amount depends only on price and down payment, so it shows as soon as those two are filled.
+  const loanReady = !errors.price && !errors.down;
+  const lowDown = loanReady && downRub < price * 0.2;
 
   /* ---- early prepayments ---- */
   const loanEndKey = f.startKey + Math.max(1, months) - 1;
@@ -213,38 +216,11 @@ export default function Calculator() {
     setF((p) => ({ ...p, termUnit: u, term: String(v) }));
   };
 
-  const share = async () => {
-    if (!calc) return;
-    const { res, S } = calc;
-    const text = [
-      "Ипотечный расчёт",
-      `Стоимость: ${fmtInt(price)} ₽, взнос: ${fmtInt(downRub)} ₽`,
-      `Кредит: ${fmtInt(S)} ₽ на ${months} мес. под ${fmtPct(rate)} %`,
-      `Ежемесячный платёж: ${fmtMoney(res.monthlyPayment)} ₽`,
-      `Переплата: ${fmtMoney(res.totalInterest)} ₽ (${fmtPct(res.overpaymentPct)} %)`,
-    ].join("\n");
-    const w = tg();
-    if (w?.initData && w.switchInlineQuery) {
-      try {
-        w.switchInlineQuery(text, ["users", "groups", "channels"]);
-        return;
-      } catch {
-        /* fall through */
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success("Расчёт скопирован в буфер обмена");
-    } catch {
-      toast.error("Не удалось скопировать");
-    }
-  };
-
-  const [saving, setSaving] = useState(false);
-  const save = async () => {
-    if (!calc || saving) return;
+  /** The current result as a table row; also the source of the copied text. */
+  const currentRecord = () => {
+    if (!calc) return null;
     const { S, n, r, start, prepays, res, baseline } = calc;
-    const record = buildCalculationRecord({
+    return buildCalculationRecord({
       price,
       downPayment: downRub,
       loan: S,
@@ -255,12 +231,44 @@ export default function Calculator() {
       result: res,
       savedInterest: baseline ? baseline.totalInterest - res.totalInterest : 0,
     });
+  };
+
+  const share = async () => {
+    const record = currentRecord();
+    if (!record) return;
+    const text = formatCalculationText(record);
+    const w = tg();
+    if (w?.initData && w.switchInlineQuery) {
+      try {
+        w.switchInlineQuery(text, ["users", "groups", "channels"]);
+        return;
+      } catch {
+        /* inline mode is off for the bot — copy instead */
+      }
+    }
+    if (await copyText(text)) toast.success("Расчёт скопирован в буфер обмена");
+    else toast.error("Не удалось скопировать расчёт");
+  };
+
+  const [saving, setSaving] = useState(false);
+  // «Сохранить расчёт» saves the result to the bot's table and copies it as text to the clipboard.
+  const save = async () => {
+    const record = currentRecord();
+    if (!record || saving) return;
+    // Copy first, while the tap still counts: after the network request the WebView may refuse.
+    const copying = copyText(formatCalculationText(record));
     setSaving(true);
-    const out = await saveCalculation(tg()?.initData, record);
+    const [out, copied] = await Promise.all([saveCalculation(tg()?.initData, record), copying]);
     setSaving(false);
-    if (out.ok) toast.success(out.created ? "Расчёт сохранён" : "Сохранённый расчёт обновлён");
-    else if (out.reason === "no-telegram") toast.info(SAVE_MESSAGES[out.reason]);
-    else toast.error(SAVE_MESSAGES[out.reason]);
+    const copyNote = copied ? "Текст расчёта скопирован в буфер обмена" : undefined;
+    if (out.ok) {
+      toast.success(out.created ? "Расчёт сохранён" : "Сохранённый расчёт обновлён", { description: copyNote });
+    } else if (out.reason === "no-telegram") {
+      if (copied) toast.success("Расчёт скопирован в буфер обмена", { description: SAVE_MESSAGES[out.reason] });
+      else toast.info(SAVE_MESSAGES[out.reason]);
+    } else {
+      toast.error(SAVE_MESSAGES[out.reason], { description: copyNote });
+    }
   };
 
   const logo = theme === "gold" ? LOGO_GOLD : LOGO_MILK;
@@ -307,7 +315,7 @@ export default function Calculator() {
 
           <div className="rounded-md bg-muted px-4 py-3">
             <div className="text-xs text-muted-foreground">Сумма кредита</div>
-            <div className="text-xl font-bold">{valid ? `${fmtInt(loan)} ₽` : "—"}</div>
+            <div className="text-xl font-bold">{loanReady ? `${fmtInt(loan)} ₽` : "—"}</div>
           </div>
 
           <Field label="Срок кредита" error={shownErr("term")}>
