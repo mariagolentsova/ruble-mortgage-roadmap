@@ -89,6 +89,16 @@ const followDefaultStart = (prev: EarlyPayment, next: EarlyPayment, prevLoanStar
     ? { ...next, startDate: keyToYm(defaultPrepayStart(next, nextLoanStart)) }
     : next;
 
+/** A new early payment row: monthly, «уменьшать платёж», empty amount — the calcus.ru defaults. */
+const newPrepay = (loanStart: number): EarlyPayment => ({
+  id: uid(),
+  kind: "recurring",
+  frequency: "monthly",
+  startDate: keyToYm(loanStart),
+  amount: 0,
+  effect: "reducePayment",
+});
+
 const uid = () => Math.random().toString(36).slice(2, 9);
 const groupDigits = (s: string) => {
   const n = parseNum(s);
@@ -160,8 +170,9 @@ export default function Calculator() {
 
   /* ---- early prepayments ---- */
   const loanEndKey = f.startKey + Math.max(1, months) - 1;
+  // A row without an amount is simply not used, as on calcus; only filled rows are checked.
   const prepayErrors: (string | null)[] = f.prepays.map((p) =>
-    valid ? validateEarlyPayment(p, f.startKey, loanEndKey) : "Сначала исправьте параметры кредита",
+    !(p.amount > 0) ? null : valid ? validateEarlyPayment(p, f.startKey, loanEndKey) : "Сначала исправьте параметры кредита",
   );
   const validPrepays = f.prepays.filter((_, i) => !prepayErrors[i]);
   // Schedule without prepayments: baseline for the effect block and the "loan closed in full" hint.
@@ -363,46 +374,47 @@ export default function Calculator() {
             />
           </Field>
 
-          <button
-            type="button"
-            onClick={() => set("prepayOpen", !f.prepayOpen)}
-            className="flex min-h-11 items-center gap-2 text-sm font-semibold text-navy-soft"
-          >
-            <Plus className={`h-4 w-4 transition-transform duration-200 ${f.prepayOpen ? "rotate-45" : ""}`} />
-            Досрочные погашения
-          </button>
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() =>
+                setF((prev) =>
+                  prev.prepayOpen
+                    ? { ...prev, prepayOpen: false, prepays: [] } // closing the section removes its rows, as on calcus
+                    : { ...prev, prepayOpen: true, prepays: prev.prepays.length ? prev.prepays : [newPrepay(prev.startKey)] },
+                )
+              }
+              aria-expanded={f.prepayOpen}
+              className={`flex min-h-11 items-center gap-2 text-sm font-semibold ${f.prepayOpen ? "text-destructive" : "text-navy-soft"}`}
+            >
+              <Plus className={`h-4 w-4 transition-transform duration-200 ${f.prepayOpen ? "rotate-45" : ""}`} />
+              Досрочные погашения
+            </button>
 
-          {f.prepayOpen && (
-            <div className="fade-in-up space-y-3">
-              {f.prepays.length === 0 && <p className="text-sm text-muted-foreground">Пока нет досрочных погашений.</p>}
-              {f.prepays.map((p, i) => (
-                <PrepayCard
-                  key={p.id}
-                  p={p}
-                  index={i}
-                  error={submitted ? (prepayErrors[i] ?? undefined) : undefined}
-                  showErrors={submitted}
-                  closesLoan={closesLoan(p)}
-                  onChange={(np) =>
-                    set("prepays", f.prepays.map((x) => (x.id === p.id ? followDefaultStart(x, np, f.startKey, f.startKey) : x)))
-                  }
-                  onRemove={() => set("prepays", f.prepays.filter((x) => x.id !== p.id))}
-                />
-              ))}
-              <button
-                type="button"
-                onClick={() =>
-                  set("prepays", [
-                    ...f.prepays,
-                    { id: uid(), kind: "once", startDate: keyToYm(f.startKey), amount: 0, effect: "reduceTerm" },
-                  ])
-                }
-                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-dashed border-input text-sm font-medium"
-              >
-                <Plus className="h-4 w-4" /> {f.prepays.length ? "Добавить ещё" : "Добавить"}
-              </button>
-            </div>
-          )}
+            {f.prepayOpen && (
+              <div className="fade-in-up space-y-3">
+                {f.prepays.map((p, i) => (
+                  <PrepayRow
+                    key={p.id}
+                    p={p}
+                    loanStart={f.startKey}
+                    removable={f.prepays.length > 1}
+                    error={submitted ? (prepayErrors[i] ?? undefined) : undefined}
+                    closesLoan={closesLoan(p)}
+                    onChange={(np) => set("prepays", f.prepays.map((x) => (x.id === p.id ? np : x)))}
+                    onRemove={() => set("prepays", f.prepays.filter((x) => x.id !== p.id))}
+                  />
+                ))}
+                <button
+                  type="button"
+                  onClick={() => set("prepays", [...f.prepays, newPrepay(f.startKey)])}
+                  className="flex min-h-11 items-center gap-2 text-sm font-medium text-muted-foreground"
+                >
+                  <Plus className="h-4 w-4" /> Добавить ещё погашение
+                </button>
+              </div>
+            )}
+          </div>
         </Card>
 
         <div className="space-y-2">
@@ -492,23 +504,25 @@ function Results({
             value={`${fmtPct(res.overpaymentPct)} %`}
           />
           <Row label="Кредит + проценты" value={`${fmtMoney(res.totalPaid)} ₽`} strong />
+          <Row label="Срок кредита" value={formatTermRu(res.rows.length)} />
           <Row label="Последний платёж" value={formatMonthLong(res.lastMonthKey)} />
         </dl>
-        <div className="border-t pt-4">
-          <Donut principal={S} interest={res.totalInterest} />
-        </div>
       </Card>
 
       {baseline && (
         <Card title="Эффект досрочных погашений">
           <dl className="space-y-3 text-sm">
             <Row label="Экономия на процентах" value={`${fmtMoney(savedInterest)} ₽`} strong />
-            <Row label="Новый срок кредита" value={formatTermRu(res.rows.length)} />
-            {savedMonths > 0 && <Row label="Сокращение срока" value={`на ${formatTermRu(savedMonths)}`} />}
             <Row label="Сумма досрочных погашений" value={`${fmtMoney(res.totalPrepaid)} ₽`} />
-            <Row label="Новая дата последнего платежа" value={formatMonthLong(res.lastMonthKey)} />
+            <Row label="Проценты без досрочных" value={`${fmtMoney(baseline.totalInterest)} ₽`} />
+            <Row label="Срок кредита" value={`${formatTermRu(baseline.rows.length)} → ${formatTermRu(res.rows.length)}`} />
+            {savedMonths > 0 && <Row label="Сокращение срока" value={`на ${formatTermRu(savedMonths)}`} />}
+            <Row
+              label="Последний платёж"
+              value={`${formatMonthShort(baseline.lastMonthKey)} → ${formatMonthShort(res.lastMonthKey)}`}
+            />
             {changedPayment && lastNewPayment === undefined && (
-              <Row label="Новый ежемесячный платёж" value={`${fmtMoney(firstNewPayment!)} ₽`} strong />
+              <Row label="Ежемесячный платёж" value={`${fmtMoney(res.monthlyPayment)} → ${fmtMoney(firstNewPayment!)} ₽`} strong />
             )}
             {lastNewPayment !== undefined && (
               <>
@@ -517,8 +531,17 @@ function Results({
               </>
             )}
           </dl>
+          {savedMonths === 0 && changedPayment && (
+            <p className="text-xs text-muted-foreground">
+              При «уменьшать платёж» срок не меняется: досрочные погашения снижают ежемесячный платёж.
+            </p>
+          )}
         </Card>
       )}
+
+      <Card title="Структура выплат">
+        <Donut principal={S} interest={res.totalInterest} />
+      </Card>
 
       <Card title="График погашения">
         <RepaymentBars rows={res.rows} />
@@ -903,129 +926,104 @@ function MonthPicker({
   );
 }
 
-const FREQ_OPTIONS: [Frequency, string][] = [
-  ["monthly", "Ежемесячно"],
+/** One select for both kinds: periodic frequencies plus «Единоразово», as on calcus. */
+type FrequencyChoice = Frequency | "once";
+const FREQ_OPTIONS: [FrequencyChoice, string][] = [
+  ["monthly", "Раз в месяц"],
   ["bimonthly", "Раз в 2 месяца"],
-  ["quarterly", "Ежеквартально"],
+  ["quarterly", "Раз в квартал"],
   ["semiannual", "Раз в полгода"],
   ["yearly", "Раз в год"],
+  ["once", "Единоразово"],
 ];
 
 const selectBase =
   "min-h-12 rounded-md border border-input bg-background px-3 text-base font-semibold outline-none focus:border-ring";
 const selectCls = `${selectBase} w-full`;
 
-function PrepayCard({
+/**
+ * Early payment in three fields — amount, how often, what it reduces — like calcus.ru.
+ * Periodic payments run from their calcus start month (see defaultPrepayStart) to the end of the loan;
+ * a one-off payment gets a month picker.
+ */
+function PrepayRow({
   p,
-  index,
+  loanStart,
+  removable,
   error,
   closesLoan,
-  showErrors,
   onChange,
   onRemove,
 }: {
   p: EarlyPayment;
-  index: number;
+  loanStart: number;
+  removable: boolean;
   error?: string | undefined;
   closesLoan: boolean;
-  showErrors: boolean;
   onChange: (p: EarlyPayment) => void;
   onRemove: () => void;
 }) {
-  const labelCls = "mb-1.5 text-sm font-medium text-muted-foreground";
+  const choice: FrequencyChoice = p.kind === "once" ? "once" : (p.frequency ?? "monthly");
+  const setChoice = (c: FrequencyChoice) => {
+    const base = { id: p.id, amount: p.amount, effect: p.effect };
+    if (c === "once") {
+      onChange({ ...base, kind: "once", startDate: p.kind === "once" ? p.startDate : keyToYm(loanStart) });
+    } else {
+      const next: EarlyPayment = { ...base, kind: "recurring", frequency: c, startDate: "" };
+      onChange({ ...next, startDate: keyToYm(defaultPrepayStart(next, loanStart)) });
+    }
+  };
   return (
-    <div className={`fade-in-up space-y-3 rounded-lg border bg-background p-3 ${error ? "border-destructive" : "border-input"}`}>
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Погашение {index + 1}</span>
-        <button
-          type="button"
-          aria-label="Удалить"
-          onClick={onRemove}
-          className="flex h-9 w-9 items-center justify-center rounded-md text-destructive"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
-
-      <Segmented
-        value={p.kind}
-        onChange={(k) =>
-          onChange(
-            k === "once"
-              ? { id: p.id, kind: "once", startDate: p.startDate, amount: p.amount, effect: p.effect }
-              : {
-                  id: p.id,
-                  kind: "recurring",
-                  startDate: p.startDate,
-                  frequency: p.frequency ?? "monthly",
-                  amount: p.amount,
-                  effect: p.effect,
-                },
-          )
-        }
-        options={[["once", "Единоразово"], ["recurring", "Периодически"]]}
-      />
-
-      {p.kind === "once" ? (
-        <div>
-          <div className={labelCls}>Дата погашения</div>
-          <MonthPicker value={ymToKey(p.startDate)} onChange={(k) => onChange({ ...p, startDate: keyToYm(k) })} />
-          {closesLoan && <p className="mt-1 text-xs text-warning">Кредит будет погашен полностью</p>}
-        </div>
-      ) : (
-        <>
-          <div>
-            <label htmlFor="prepay-frequency" className={labelCls}>
-              Частота
-            </label>
-            <select
-              id="prepay-frequency"
-              className={selectCls}
-              value={p.frequency ?? "monthly"}
-              onChange={(e) => onChange({ ...p, frequency: e.target.value as Frequency })}
-            >
-              {FREQ_OPTIONS.map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <div className={labelCls}>Начиная с</div>
-            <MonthPicker value={ymToKey(p.startDate)} onChange={(k) => onChange({ ...p, startDate: keyToYm(k) })} />
-          </div>
-          <div>
-            <div className={labelCls}>Заканчивая</div>
-            <MonthPicker
-              value={p.endDate ? ymToKey(p.endDate) : null}
-              onChange={(k) => onChange({ ...p, endDate: keyToYm(k) })}
-              emptyLabel="Пусто — до конца срока кредита"
-            />
-          </div>
-        </>
-      )}
-
-      <div>
-        <div className={labelCls}>{p.kind === "recurring" ? "Сумма каждого погашения" : "Сумма"}</div>
+    <div className="fade-in-up space-y-2">
+      <div className="grid grid-cols-2 gap-2">
         <NumInput
           value={p.amount ? String(p.amount) : ""}
           onChange={(v) => onChange({ ...p, amount: parseNum(v) || 0 })}
           suffix="₽"
           integer
-          invalid={showErrors && !(p.amount > 0)}
+          invalid={!!error}
         />
+        <select
+          aria-label="Как часто"
+          className={`${selectBase} min-w-0`}
+          value={choice}
+          onChange={(e) => setChoice(e.target.value as FrequencyChoice)}
+        >
+          {FREQ_OPTIONS.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
       </div>
-
-      <div>
-        <div className={labelCls}>Результат погашения</div>
-        <Segmented
+      <div className="flex gap-2">
+        <select
+          aria-label="Что уменьшать"
+          className={`${selectBase} min-w-0 flex-1`}
           value={p.effect}
-          onChange={(t) => onChange({ ...p, effect: t })}
-          options={[["reduceTerm", "Уменьшить срок"], ["reducePayment", "Уменьшить платёж"]]}
-        />
+          onChange={(e) => onChange({ ...p, effect: e.target.value as EarlyPayment["effect"] })}
+        >
+          <option value="reducePayment">Уменьшать платёж</option>
+          <option value="reduceTerm">Уменьшать срок</option>
+        </select>
+        {removable && (
+          <button
+            type="button"
+            aria-label="Удалить погашение"
+            onClick={onRemove}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
       </div>
-
+      {p.kind === "once" && (
+        <div>
+          <div className="mb-1.5 text-sm font-medium text-muted-foreground">Месяц погашения</div>
+          <MonthPicker value={ymToKey(p.startDate)} onChange={(k) => onChange({ ...p, startDate: keyToYm(k) })} />
+          {closesLoan && <p className="mt-1 text-xs text-warning">Кредит будет погашен полностью</p>}
+        </div>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
@@ -1034,8 +1032,9 @@ function PrepayCard({
 function Row({ label, value, strong }: { label: ReactNode; value: string; strong?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className={`text-right ${strong ? "font-bold" : "font-semibold"}`}>{value}</dd>
+      <dt className="min-w-0 text-muted-foreground">{label}</dt>
+      {/* Amounts and dates never break in the middle; the label wraps instead. */}
+      <dd className={`whitespace-nowrap text-right ${strong ? "font-bold" : "font-semibold"}`}>{value}</dd>
     </div>
   );
 }
