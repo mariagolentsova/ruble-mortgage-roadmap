@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Info, Plus, Trash2, Share2, Save, RotateCcw, Loader2 } from "lucide-react";
+import { ChevronDown, Info, Plus, Trash2, Save, RotateCcw, Loader2 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -71,7 +71,6 @@ type TgWebApp = {
   expand: () => void;
   setHeaderColor?: (c: string) => void;
   setBackgroundColor?: (c: string) => void;
-  switchInlineQuery?: (q: string, types?: string[]) => void;
   initData?: string;
 };
 const tg = (): TgWebApp | undefined =>
@@ -257,23 +256,6 @@ export default function Calculator() {
     });
   };
 
-  const share = async () => {
-    const record = currentRecord();
-    if (!record) return;
-    const text = formatCalculationText(record);
-    const w = tg();
-    if (w?.initData && w.switchInlineQuery) {
-      try {
-        w.switchInlineQuery(text, ["users", "groups", "channels"]);
-        return;
-      } catch {
-        /* inline mode is off for the bot — copy instead */
-      }
-    }
-    if (await copyText(text)) toast.success("Расчёт скопирован в буфер обмена");
-    else toast.error("Не удалось скопировать расчёт");
-  };
-
   const [saving, setSaving] = useState(false);
   // «Сохранить расчёт» saves the result to the bot's table and copies it as text to the clipboard.
   const save = async () => {
@@ -438,7 +420,7 @@ export default function Calculator() {
           {!shown || !calc ? (
             <EmptyState pending={shown && !calc} />
           ) : (
-            <Results calc={calc} onShare={share} onSave={save} saving={saving} />
+            <Results calc={calc} onSave={save} saving={saving} />
           )}
         </div>
       </main>
@@ -450,7 +432,6 @@ export default function Calculator() {
 
 function Results({
   calc,
-  onShare,
   onSave,
   saving,
 }: {
@@ -460,7 +441,6 @@ function Results({
     baseline: ReturnType<typeof buildSchedule> | null;
     paymentChanges: number[];
   };
-  onShare: () => void;
   onSave: () => void;
   saving: boolean;
 }) {
@@ -551,13 +531,6 @@ function Results({
       <ScheduleCard rows={res.rows} />
 
       <div className="grid gap-2 pb-2">
-        <button
-          type="button"
-          onClick={onShare}
-          className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-primary bg-card text-sm font-semibold"
-        >
-          <Share2 className="h-4 w-4" /> Поделиться расчётом
-        </button>
         <button
           type="button"
           onClick={onSave}
