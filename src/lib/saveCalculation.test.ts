@@ -31,7 +31,7 @@ describe("buildCalculationRecord", () => {
       last_payment_month: "2041-09",
       prepaid_total: 0,
     });
-    expect(record.total_interest).toBeCloseTo(3_373_124.89, 2);
+    expect(record.total_interest).toBe(3_373_125.28); // calcus.ru: 3 373 125,28 ₽
   });
 });
 

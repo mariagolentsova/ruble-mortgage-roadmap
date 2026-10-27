@@ -107,67 +107,84 @@ export interface ScheduleResult {
   totalPrepaid: number;
 }
 
-const EPS = 1e-7;
-
 export function calcAnnuity(principal: number, months: number, annualRate: number): number {
   if (months <= 0 || principal <= 0) return 0;
-  const r = annualRate / 12 / 100;
+  const r = annualRate / 1200; // the same float calcus.ru uses — matters for rounding at half a kopeck
   if (r === 0) return principal / months;
   const k = Math.pow(1 + r, months);
   return (principal * r * k) / (k - 1);
 }
 
+/**
+ * Bank-style schedule, matched row by row against calcus.ru:
+ * - money is kept in whole kopecks; the monthly payment and each month's interest
+ *   (balance × rate / 12) are rounded to kopecks;
+ * - a prepayment is taken in its month right after the regular payment;
+ * - "reduce payment" recalculates the payment for the remaining months, rounded to kopecks;
+ *   "reduce term" keeps the payment, so the loan ends earlier;
+ * - the last scheduled payment closes whatever is left (calcus leaves a few kopecks or rubles
+ *   unpaid in its last row; interest totals are identical either way).
+ */
 export function buildSchedule(input: ScheduleInput, earlyPayments: EarlyPayment[] = []): ScheduleResult {
-  const { principal: S, months: n, annualRate, startMonthKey } = input;
-  const r = annualRate / 12 / 100;
-  const P0 = calcAnnuity(S, n, annualRate);
+  const { principal, months: n, annualRate, startMonthKey } = input;
+  const r = annualRate / 1200; // the same float calcus.ru uses — matters for rounding at half a kopeck
+  const kop = (rub: number) => Math.round(rub * 100);
+  const rub = (k: number) => k / 100;
+  // calcAnnuity is linear in the principal, so it works on kopecks directly.
+  const annuityKop = (balanceKop: number, months: number) => Math.round(calcAnnuity(balanceKop, months, annualRate));
   const prepays = expandEarlyPayments(earlyPayments, startMonthKey, startMonthKey + n - 1).sort(
     (a, b) => a.monthKey - b.monthKey, // stable: same-month entries keep the order they were added
   );
 
+  const S = kop(principal);
+  const P0 = annuityKop(S, n);
   const rows: ScheduleRow[] = [];
   let balance = S;
   let P = P0;
+  let interestTotal = 0;
+  let prepaidTotal = 0;
 
-  for (let i = 0; i < n && balance > EPS; i++) {
+  for (let i = 0; i < n && balance > 0; i++) {
+    const m = i + 1;
     const monthKey = startMonthKey + i;
-    const interest = balance * r;
-    let principalPart = P - interest;
-    let payment = P;
-    const isLast = i === n - 1 || principalPart >= balance - EPS;
-    if (isLast) {
-      principalPart = balance;
-      payment = balance + interest;
-    }
+    const interest = Math.round(balance * r);
+    let principalPart = Math.max(0, Math.min(P - interest, balance));
     balance -= principalPart;
 
     let extra = 0;
     for (const p of prepays) {
-      if (p.monthKey !== monthKey || balance <= EPS) continue;
-      const amt = Math.min(p.amount, balance);
+      if (p.monthKey !== monthKey || balance <= 0) continue;
+      const amt = Math.min(kop(p.amount), balance);
       extra += amt;
       balance -= amt;
-      if (p.effect === "reducePayment" && balance > EPS) {
-        P = calcAnnuity(balance, n - i - 1, annualRate);
-      }
+      if (p.effect === "reducePayment" && balance > 0 && n - m > 0) P = annuityKop(balance, n - m);
     }
-    if (balance < EPS) balance = 0;
+    if (m === n && balance > 0) {
+      principalPart += balance;
+      balance = 0;
+    }
 
-    rows.push({ index: i + 1, monthKey, payment, principal: principalPart, interest, extra, balance });
+    interestTotal += interest;
+    prepaidTotal += extra;
+    rows.push({
+      index: m,
+      monthKey,
+      payment: rub(principalPart + interest),
+      principal: rub(principalPart),
+      interest: rub(interest),
+      extra: rub(extra),
+      balance: rub(balance),
+    });
   }
-
-  const hasPrepay = rows.some((x) => x.extra > 0);
-  const totalInterest = hasPrepay ? rows.reduce((s, x) => s + x.interest, 0) : P0 * n - S;
-  const totalPrepaid = rows.reduce((s, x) => s + x.extra, 0);
 
   return {
     rows,
-    monthlyPayment: P0,
-    totalInterest,
-    totalPaid: S + totalInterest,
-    overpaymentPct: S > 0 ? (totalInterest / S) * 100 : 0,
+    monthlyPayment: rub(P0),
+    totalInterest: rub(interestTotal),
+    totalPaid: rub(S + interestTotal),
+    overpaymentPct: S > 0 ? (interestTotal / S) * 100 : 0,
     lastMonthKey: rows.length ? rows[rows.length - 1]!.monthKey : startMonthKey,
-    totalPrepaid,
+    totalPrepaid: rub(prepaidTotal),
   };
 }
 

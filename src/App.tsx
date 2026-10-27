@@ -19,6 +19,7 @@ import {
   formatTermRu,
   keyMonth,
   keyToYm,
+  FREQ_STEP,
   keyYear,
   monthKeyOf,
   parseNum,
@@ -75,6 +76,18 @@ type TgWebApp = {
 };
 const tg = (): TgWebApp | undefined =>
   typeof window !== "undefined" ? (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp : undefined;
+
+/**
+ * Default month of the first early payment, as on calcus.ru: a one-off or monthly payment starts with the
+ * first loan payment; "every k months" starts with the k-th payment (every 2 months → month 2, yearly → month 12).
+ */
+const defaultPrepayStart = (p: Pick<EarlyPayment, "kind" | "frequency">, loanStart: number) =>
+  loanStart + (p.kind === "recurring" ? FREQ_STEP[p.frequency ?? "monthly"] - 1 : 0);
+/** Moves the start date along with kind / frequency / loan start, unless the person has picked a date themselves. */
+const followDefaultStart = (prev: EarlyPayment, next: EarlyPayment, prevLoanStart: number, nextLoanStart: number): EarlyPayment =>
+  next.startDate === prev.startDate && prev.startDate === keyToYm(defaultPrepayStart(prev, prevLoanStart))
+    ? { ...next, startDate: keyToYm(defaultPrepayStart(next, nextLoanStart)) }
+    : next;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const groupDigits = (s: string) => {
@@ -338,7 +351,16 @@ export default function Calculator() {
           </Field>
 
           <Field label="Начало выплат">
-            <MonthPicker value={f.startKey} onChange={(k) => set("startKey", k)} />
+            <MonthPicker
+              value={f.startKey}
+              onChange={(k) =>
+                setF((prev) => ({
+                  ...prev,
+                  startKey: k,
+                  prepays: prev.prepays.map((x) => followDefaultStart(x, x, prev.startKey, k)),
+                }))
+              }
+            />
           </Field>
 
           <button
@@ -361,7 +383,9 @@ export default function Calculator() {
                   error={submitted ? (prepayErrors[i] ?? undefined) : undefined}
                   showErrors={submitted}
                   closesLoan={closesLoan(p)}
-                  onChange={(np) => set("prepays", f.prepays.map((x) => (x.id === p.id ? np : x)))}
+                  onChange={(np) =>
+                    set("prepays", f.prepays.map((x) => (x.id === p.id ? followDefaultStart(x, np, f.startKey, f.startKey) : x)))
+                  }
                   onRemove={() => set("prepays", f.prepays.filter((x) => x.id !== p.id))}
                 />
               ))}
@@ -370,7 +394,7 @@ export default function Calculator() {
                 onClick={() =>
                   set("prepays", [
                     ...f.prepays,
-                    { id: uid(), kind: "once", startDate: keyToYm(f.startKey + 12), amount: 0, effect: "reduceTerm" },
+                    { id: uid(), kind: "once", startDate: keyToYm(f.startKey), amount: 0, effect: "reduceTerm" },
                   ])
                 }
                 className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-dashed border-input text-sm font-medium"

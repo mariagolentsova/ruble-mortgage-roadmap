@@ -27,10 +27,11 @@ describe("mortgage annuity", () => {
   });
   it("totals match reference", () => {
     const s = buildSchedule(base);
-    // Brief gives "≈ 3 373 125,28"; the exact P×n−S is 3 373 124,89 — allow < 1 ₽.
-    expect(Math.abs(s.totalInterest - 3_373_125.28)).toBeLessThan(1);
+    // calcus.ru and the original brief: 3 373 125,28 ₽ (interest rounded to kopecks each month).
+    expect(s.totalInterest).toBe(3_373_125.28);
     expect(s.overpaymentPct.toFixed(2)).toBe("51.89");
-    expect(Math.abs(s.totalPaid - 9_873_125.28)).toBeLessThan(1);
+    expect(s.totalPaid).toBe(9_873_125.28);
+    expect(s.rows.at(-1)!.payment).toBe(54_851.77); // the last payment closes the loan
   });
   it("first month split", () => {
     const r = buildSchedule(base).rows[0]!;
@@ -121,5 +122,35 @@ describe("mortgage annuity", () => {
     expect(s.totalPrepaid).toBeGreaterThan(0);
     expect(s.rows.every((r) => r.extra <= 50_000)).toBe(true);
     expect(ymToKey("2026-03")).toBe(2026 * 12 + 2);
+  });
+});
+
+// Reference results from calcus.ru/kalkulyator-ipoteki (checked 27.10.2026, schedules identical row by row
+// except calcus's last row, which leaves a few kopecks unpaid). Loan starts October 2026.
+describe("matches calcus.ru", () => {
+  const start = 2026 * 12 + 9;
+  type Case = [string, number, number, number, Partial<EarlyPayment> | null, number, number, number];
+  // name, loan ₽, years, rate %, prepayment, interest ₽, months, total prepaid ₽
+  const monthly = { kind: "recurring" as const, frequency: "monthly" as const };
+  const cases: Case[] = [
+    ["7M/25y/8% without prepayments", 7_000_000, 25, 8, null, 9_208_137.64, 300, 0],
+    ["customer example: 10 000 monthly, reduce term", 7_000_000, 25, 8, { ...monthly, amount: 10_000, effect: "reduceTerm" }, 5_576_166.22, 197, 1_960_000],
+    ["10 000 monthly, reduce payment", 7_000_000, 25, 8, { ...monthly, amount: 10_000, effect: "reducePayment" }, 7_385_324.93, 296, 2_951_929.05],
+    ["100 000 every 2 months from month 2, reduce term", 7_000_000, 25, 8, { kind: "recurring", frequency: "bimonthly", amount: 100_000, effect: "reduceTerm", startDate: keyToYm(start + 1) }, 2_340_453.97, 90, 4_478_011.37],
+    ["100 000 quarterly from month 3, reduce payment", 7_000_000, 25, 8, { kind: "recurring", frequency: "quarterly", amount: 100_000, effect: "reducePayment", startDate: keyToYm(start + 2) }, 4_085_258.71, 177, 5_890_808.99],
+    ["100 000 twice a year from month 6, reduce term", 7_000_000, 25, 8, { kind: "recurring", frequency: "semiannual", amount: 100_000, effect: "reduceTerm", startDate: keyToYm(start + 5) }, 4_562_682.41, 165, 2_700_000],
+    ["100 000 yearly from month 12, reduce payment", 7_000_000, 25, 8, { kind: "recurring", frequency: "yearly", amount: 100_000, effect: "reducePayment", startDate: keyToYm(start + 11) }, 7_749_014.27, 300, 2_400_000.03],
+    ["1 000 000 once in month 13, reduce term", 7_000_000, 25, 8, { kind: "once", amount: 1_000_000, effect: "reduceTerm", startDate: keyToYm(start + 12) }, 5_290_923.29, 209, 1_000_000],
+    ["1 000 000 once in month 13, reduce payment", 7_000_000, 25, 8, { kind: "once", amount: 1_000_000, effect: "reducePayment", startDate: keyToYm(start + 12) }, 7_961_051.98, 300, 1_000_000],
+    ["3M/10y/21.5%, 25 000 monthly, reduce payment", 3_000_000, 10, 21.5, { ...monthly, amount: 25_000, effect: "reducePayment" }, 2_433_337.3, 92, 2_278_462.84],
+    ["12M/30y/9.9%, 150 000 quarterly from month 3, reduce term", 12_000_000, 30, 9.9, { kind: "recurring", frequency: "quarterly", amount: 150_000, effect: "reduceTerm", startDate: keyToYm(start + 2) }, 7_349_369.76, 126, 6_192_083.1],
+  ];
+  it.each(cases)("%s", (_name, loan, years, rate, prepay, interest, months, prepaid) => {
+    const list: EarlyPayment[] = prepay ? [{ id: "x", kind: "once", startDate: keyToYm(start), amount: 0, effect: "reduceTerm", ...prepay } as EarlyPayment] : [];
+    const s = buildSchedule({ principal: loan, months: years * 12, annualRate: rate, startMonthKey: start }, list);
+    expect(s.totalInterest).toBe(interest);
+    expect(s.rows.length).toBe(months);
+    expect(s.totalPrepaid).toBe(prepaid);
+    expect(s.rows.at(-1)!.balance).toBe(0);
   });
 });
