@@ -1,0 +1,185 @@
+{
+  "name": "Совесть — пользователи бота в Google Таблицу",
+  "nodes": [
+    {
+      "id": "8a1c3e5f-2b4d-4c6e-9f80-1a2b3c4d0001",
+      "name": "Каждый день в 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 7,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "8a1c3e5f-2b4d-4c6e-9f80-1a2b3c4d0002",
+      "name": "Пользователи бота",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "bot_users"
+        },
+        "matchType": "anyCondition",
+        "filters": {},
+        "returnAll": true
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "8a1c3e5f-2b4d-4c6e-9f80-1a2b3c4d0003",
+      "name": "Сохранённые расчёты",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "mortgage_calculations"
+        },
+        "matchType": "anyCondition",
+        "filters": {},
+        "returnAll": true
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "8a1c3e5f-2b4d-4c6e-9f80-1a2b3c4d0004",
+      "name": "Собрать строки для таблицы",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// «Собрать строки для таблицы»: one row per bot user for the Google Sheet.\n// Keys are the sheet's column headers; the sheet node matches rows by «Telegram ID».\n// The user's last saved calculation (if any) is added from mortgage_calculations.\n\nconst users = $('Пользователи бота').all().map((i) => i.json).filter((u) => u.telegram_id);\nlet calcs = [];\ntry {\n  calcs = $('Сохранённые расчёты').all().map((i) => i.json).filter((c) => c.telegram_id);\n} catch {\n  calcs = []; // nobody has saved a calculation yet: the table may not exist\n}\nconst calcById = new Map(calcs.map((c) => [String(c.telegram_id), c]));\n\n// Moscow has been UTC+3 all year since 2014. \"2026-10-27 07:00\" is read as a date by Google Sheets.\nconst msk = (v) => {\n  if (!v) return '';\n  const t = new Date(v);\n  if (Number.isNaN(t.getTime())) return '';\n  return new Date(t.getTime() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ');\n};\n\nconst ACTIONS = {\n  start: 'Нажал «Старт»',\n  calculator: 'Открыл калькулятор',\n  question: 'Задать вопрос',\n  retry: 'Повтор (калькулятор был недоступен)',\n  unknown: 'Другое сообщение',\n};\n\nconst now = msk(new Date());\nconst rows = users\n  .slice()\n  .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))\n  .map((u) => {\n    const c = calcById.get(String(u.telegram_id));\n    return {\n      json: {\n        'Telegram ID': String(u.telegram_id),\n        'Ник': u.username ? '@' + u.username : '',\n        'Ссылка на профиль': u.profile_link || '',\n        'Имя': u.first_name || '',\n        'Фамилия': u.last_name || '',\n        'Язык': u.language_code || '',\n        'Premium': u.is_premium ? 'да' : 'нет',\n        'Первое обращение': msk(u.createdAt),\n        'Последняя активность': msk(u.last_seen_at || u.updatedAt),\n        'Последнее действие': ACTIONS[u.last_action] || u.last_action || '',\n        'Сохранил расчёт': c ? 'да' : 'нет',\n        'Дата расчёта': c ? msk(c.saved_at || c.updatedAt) : '',\n        'Сумма кредита, ₽': c ? Number(c.loan_amount) : '',\n        'Ставка, %': c ? Number(c.rate) : '',\n        'Срок, мес.': c ? Number(c.term_months) : '',\n        'Ежемесячный платёж, ₽': c ? Number(c.monthly_payment) : '',\n        'Досрочные погашения': c ? c.prepayments || '' : '',\n        'Обновлено': now,\n      },\n    };\n  });\n\nreturn rows;\n"
+      }
+    },
+    {
+      "id": "8a1c3e5f-2b4d-4c6e-9f80-1a2b3c4d0005",
+      "name": "Google Таблица: добавить или обновить",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Пользователи"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Telegram ID"
+          ],
+          "schema": []
+        },
+        "options": {
+          "handlingExtraData": "insertInNewColumn",
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "",
+          "name": "Google — сервисный аккаунт"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Каждый день в 07:00": {
+      "main": [
+        [
+          {
+            "node": "Пользователи бота",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Пользователи бота": {
+      "main": [
+        [
+          {
+            "node": "Сохранённые расчёты",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сохранённые расчёты": {
+      "main": [
+        [
+          {
+            "node": "Собрать строки для таблицы",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Собрать строки для таблицы": {
+      "main": [
+        [
+          {
+            "node": "Google Таблица: добавить или обновить",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {}
+}
