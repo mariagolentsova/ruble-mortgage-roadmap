@@ -16,8 +16,6 @@ return [
       profile_link: u.username ? `https://t.me/${clip(u.username, 64)}` : '',
       first_name: clip(u.first_name, 128),
       last_name: clip(u.last_name, 128),
-      language_code: clip(u.language_code, 16),
-      is_premium: u.is_premium === true,
       last_action: p.action,
       last_seen_at: new Date().toISOString(),
     },

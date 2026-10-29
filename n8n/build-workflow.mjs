@@ -20,8 +20,6 @@ export const USERS_TABLE_COLUMNS = [
   ["profile_link", "string"],
   ["first_name", "string"],
   ["last_name", "string"],
-  ["language_code", "string"],
-  ["is_premium", "boolean"],
   ["last_action", "string"],
   ["last_seen_at", "date"],
 ];
