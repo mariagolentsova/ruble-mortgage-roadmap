@@ -1,0 +1,114 @@
+{
+  "name": "Совесть — удаление данных старше 3 лет",
+  "nodes": [
+    {
+      "id": "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0001",
+      "name": "Каждый день в 03:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 3,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0002",
+      "name": "Пользователи: удалить неактивных больше 3 лет",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        260,
+        -100
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "bot_users"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "updatedAt",
+              "condition": "lt",
+              "keyValue": "={{ $now.minus({ years: 3 }).toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0003",
+      "name": "Расчёты: удалить старше 3 лет",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        260,
+        100
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "mortgage_calculations"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "updatedAt",
+              "condition": "lt",
+              "keyValue": "={{ $now.minus({ years: 3 }).toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Каждый день в 03:00": {
+      "main": [
+        [
+          {
+            "node": "Пользователи: удалить неактивных больше 3 лет",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Расчёты: удалить старше 3 лет",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {}
+}

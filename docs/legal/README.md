@@ -1,13 +1,16 @@
 # Documents on personal data
 
-`public/privacy.html` and `public/consent.html` are the operator's policy and consent,
-converted from the client's .docx files with the text unchanged. Published at
-`<calculator address>/privacy.html` and `/consent.html`; the bot links to them through
-PD_POLICY_URL and PD_CONSENT_URL in /opt/beget/n8n/.env.
+`public/privacy.html` (политика) and `public/consent.html` (согласие) for the operator
+ИП Ульянова П. А. (ЦН СОВЪСТЬ). Published at `<calculator address>/privacy.html` and
+`/consent.html`; the bot links to them through PD_POLICY_URL and PD_CONSENT_URL in
+/opt/beget/n8n/.env.
 
-To update from a new .docx:
+The texts live in `docs/legal/privacy.src.html` and `docs/legal/consent.src.html`.
+After editing them run:
 
-    pandoc new.docx -t html5 --wrap=none -o new.frag.html
-    python3 docs/legal/make_pages.py new.frag.html public/privacy.html
+    python3 docs/legal/build_documents.py
 
-The script refuses to write if any word of the source text is lost or reordered.
+When the bot or calculator starts collecting new data or sending it somewhere new, update
+sections 2 and 6 of the policy and sections 1 and 4 of the consent, and the date.
+
+`make_pages.py` is the older converter for documents supplied as .docx.
