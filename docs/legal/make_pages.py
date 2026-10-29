@@ -11,9 +11,7 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>{title}</title>
 <link rel="icon" type="image/png" href="favicon.png" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap" />
+<link rel="stylesheet" href="fonts/manrope.css" />
 <style>
   :root {{ --navy: #0b1f44; --milk: #f7f3e9; --card: #fdfbf6; --ink: #0b1f44; --muted: #5b6b8c; --rule: #e4ddcc; --link: #16305f; color-scheme: light; }}
   * {{ box-sizing: border-box; }}
