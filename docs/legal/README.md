@@ -1,7 +1,7 @@
 # Documents on personal data
 
 `public/privacy.html` (политика) and `public/consent.html` (согласие) for the operator
-ИП Ульянова П. А. (ЦН СОВЪСТЬ). Published at `<calculator address>/privacy.html` and
+ИП Ульянова П. А.. Published at `<calculator address>/privacy.html` and
 `/consent.html`; the bot links to them through PD_POLICY_URL and PD_CONSENT_URL in
 /opt/beget/n8n/.env.
 

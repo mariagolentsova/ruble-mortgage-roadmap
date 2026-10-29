@@ -43,15 +43,13 @@ return [
       action,
       // Only these actions show the calculator button, so only they need the availability check.
       needsCheck: ['start', 'calculator', 'retry'].includes(action),
-      // Everything Telegram sends about the person, for the bot_users table.
+      // Name and username for the bot_users table (language and Premium are not kept).
       user: from
         ? {
             id: from.id,
             username: from.username ?? '',
             first_name: from.first_name ?? '',
             last_name: from.last_name ?? '',
-            language_code: from.language_code ?? '',
-            is_premium: from.is_premium === true,
           }
         : null,
     },

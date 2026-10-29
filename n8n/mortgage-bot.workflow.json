@@ -35,7 +35,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// «Разобрать апдейт»: turns a Telegram update into one action for the bot.\n// Only private chats are answered; anything else produces no items and the run stops.\n\nconst MENU_CALC = '🧮 Калькулятор';\nconst MENU_ASK = '💬 Задать вопрос';\n\nconst update = $input.first().json;\nlet chatId = null;\nlet chatType = 'private';\nlet firstName = '';\nlet callbackId = null;\nlet action = 'unknown';\nlet from = null;\n\nif (update.callback_query) {\n  const cq = update.callback_query;\n  chatId = cq.message?.chat?.id ?? cq.from?.id ?? null;\n  chatType = cq.message?.chat?.type ?? 'private';\n  firstName = cq.from?.first_name ?? '';\n  from = cq.from ?? null;\n  callbackId = cq.id;\n  action = cq.data === 'retry_calc' ? 'retry' : 'unknown';\n} else if (update.message) {\n  const m = update.message;\n  chatId = m.chat?.id ?? null;\n  chatType = m.chat?.type ?? 'private';\n  firstName = m.from?.first_name ?? '';\n  from = m.from ?? null;\n  const text = (m.text ?? '').trim();\n  if (/^\\/start(\\s|@|$)/.test(text)) action = 'start';\n  else if (text === MENU_CALC || /^\\/calc(\\s|@|$)/.test(text)) action = 'calculator';\n  else if (text === MENU_ASK || /^\\/(ask|help)(\\s|@|$)/.test(text)) action = 'question';\n}\n\nif (!chatId || chatType !== 'private') return [];\n\nreturn [\n  {\n    json: {\n      chatId,\n      firstName,\n      callbackId,\n      action,\n      // Only these actions show the calculator button, so only they need the availability check.\n      needsCheck: ['start', 'calculator', 'retry'].includes(action),\n      // Everything Telegram sends about the person, for the bot_users table.\n      user: from\n        ? {\n            id: from.id,\n            username: from.username ?? '',\n            first_name: from.first_name ?? '',\n            last_name: from.last_name ?? '',\n            language_code: from.language_code ?? '',\n            is_premium: from.is_premium === true,\n          }\n        : null,\n    },\n  },\n];\n"
+        "jsCode": "// «Разобрать апдейт»: turns a Telegram update into one action for the bot.\n// Only private chats are answered; anything else produces no items and the run stops.\n\nconst MENU_CALC = '🧮 Калькулятор';\nconst MENU_ASK = '💬 Задать вопрос';\n\nconst update = $input.first().json;\nlet chatId = null;\nlet chatType = 'private';\nlet firstName = '';\nlet callbackId = null;\nlet action = 'unknown';\nlet from = null;\n\nif (update.callback_query) {\n  const cq = update.callback_query;\n  chatId = cq.message?.chat?.id ?? cq.from?.id ?? null;\n  chatType = cq.message?.chat?.type ?? 'private';\n  firstName = cq.from?.first_name ?? '';\n  from = cq.from ?? null;\n  callbackId = cq.id;\n  action = cq.data === 'retry_calc' ? 'retry' : 'unknown';\n} else if (update.message) {\n  const m = update.message;\n  chatId = m.chat?.id ?? null;\n  chatType = m.chat?.type ?? 'private';\n  firstName = m.from?.first_name ?? '';\n  from = m.from ?? null;\n  const text = (m.text ?? '').trim();\n  if (/^\\/start(\\s|@|$)/.test(text)) action = 'start';\n  else if (text === MENU_CALC || /^\\/calc(\\s|@|$)/.test(text)) action = 'calculator';\n  else if (text === MENU_ASK || /^\\/(ask|help)(\\s|@|$)/.test(text)) action = 'question';\n}\n\nif (!chatId || chatType !== 'private') return [];\n\nreturn [\n  {\n    json: {\n      chatId,\n      firstName,\n      callbackId,\n      action,\n      // Only these actions show the calculator button, so only they need the availability check.\n      needsCheck: ['start', 'calculator', 'retry'].includes(action),\n      // Name and username for the bot_users table (language and Premium are not kept).\n      user: from\n        ? {\n            id: from.id,\n            username: from.username ?? '',\n            first_name: from.first_name ?? '',\n            last_name: from.last_name ?? '',\n          }\n        : null,\n    },\n  },\n];\n"
       }
     },
     {
@@ -155,7 +155,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "// «Карточка пользователя»: one bot_users row per Telegram user, refreshed on every message.\n// Only what Telegram itself sends with an update; phone numbers are not requested.\n// The table's own createdAt column = first visit, updatedAt = last activity.\n\nconst p = $('Разобрать апдейт').first().json;\nconst u = p.user;\nif (!u || !u.id) return [];\n\nconst clip = (s, n) => String(s ?? '').slice(0, n);\n\nreturn [\n  {\n    json: {\n      telegram_id: String(u.id),\n      username: clip(u.username, 64),\n      profile_link: u.username ? `https://t.me/${clip(u.username, 64)}` : '',\n      first_name: clip(u.first_name, 128),\n      last_name: clip(u.last_name, 128),\n      language_code: clip(u.language_code, 16),\n      is_premium: u.is_premium === true,\n      last_action: p.action,\n      last_seen_at: new Date().toISOString(),\n    },\n  },\n];\n"
+        "jsCode": "// «Карточка пользователя»: one bot_users row per Telegram user, refreshed on every message.\n// Only what Telegram itself sends with an update; phone numbers are not requested.\n// The table's own createdAt column = first visit, updatedAt = last activity.\n\nconst p = $('Разобрать апдейт').first().json;\nconst u = p.user;\nif (!u || !u.id) return [];\n\nconst clip = (s, n) => String(s ?? '').slice(0, n);\n\nreturn [\n  {\n    json: {\n      telegram_id: String(u.id),\n      username: clip(u.username, 64),\n      profile_link: u.username ? `https://t.me/${clip(u.username, 64)}` : '',\n      first_name: clip(u.first_name, 128),\n      last_name: clip(u.last_name, 128),\n      last_action: p.action,\n      last_seen_at: new Date().toISOString(),\n    },\n  },\n];\n"
       }
     },
     {
@@ -192,14 +192,6 @@
             {
               "name": "last_name",
               "type": "string"
-            },
-            {
-              "name": "language_code",
-              "type": "string"
-            },
-            {
-              "name": "is_premium",
-              "type": "boolean"
             },
             {
               "name": "last_action",
