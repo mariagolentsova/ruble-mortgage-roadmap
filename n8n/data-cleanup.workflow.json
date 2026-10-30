@@ -55,6 +55,81 @@
       "onError": "continueRegularOutput"
     },
     {
+      "id": "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0004",
+      "name": "Кого удалили",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "// Deleted rows come out of the previous node; an error item has no telegram_id.\nreturn $input.all().filter((i) => i.json.telegram_id).map((i) => ({ json: { telegram_id: String(i.json.telegram_id) } }));"
+      }
+    },
+    {
+      "id": "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0005",
+      "name": "Подписка: удалить вместе с пользователем",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        -100
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "news_subscribers"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.telegram_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0006",
+      "name": "Рассылки: удалить отчёты старше 3 лет",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        260,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "broadcasts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "updatedAt",
+              "condition": "lt",
+              "keyValue": "={{ $now.minus({ years: 3 }).toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
       "id": "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0003",
       "name": "Расчёты: удалить старше 3 лет",
       "type": "n8n-nodes-base.dataTable",
@@ -97,6 +172,33 @@
           },
           {
             "node": "Расчёты: удалить старше 3 лет",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Рассылки: удалить отчёты старше 3 лет",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Пользователи: удалить неактивных больше 3 лет": {
+      "main": [
+        [
+          {
+            "node": "Кого удалили",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Кого удалили": {
+      "main": [
+        [
+          {
+            "node": "Подписка: удалить вместе с пользователем",
             "type": "main",
             "index": 0
           }

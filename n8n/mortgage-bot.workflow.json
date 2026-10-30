@@ -35,7 +35,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// «Разобрать апдейт»: turns a Telegram update into one action for the bot.\n// Only private chats are answered; anything else produces no items and the run stops.\n\nconst MENU_CALC = '🧮 Калькулятор';\nconst MENU_ASK = '💬 Задать вопрос';\n\nconst update = $input.first().json;\nlet chatId = null;\nlet chatType = 'private';\nlet firstName = '';\nlet callbackId = null;\nlet action = 'unknown';\nlet from = null;\n\nif (update.callback_query) {\n  const cq = update.callback_query;\n  chatId = cq.message?.chat?.id ?? cq.from?.id ?? null;\n  chatType = cq.message?.chat?.type ?? 'private';\n  firstName = cq.from?.first_name ?? '';\n  from = cq.from ?? null;\n  callbackId = cq.id;\n  action = cq.data === 'retry_calc' ? 'retry' : 'unknown';\n} else if (update.message) {\n  const m = update.message;\n  chatId = m.chat?.id ?? null;\n  chatType = m.chat?.type ?? 'private';\n  firstName = m.from?.first_name ?? '';\n  from = m.from ?? null;\n  const text = (m.text ?? '').trim();\n  if (/^\\/start(\\s|@|$)/.test(text)) action = 'start';\n  else if (text === MENU_CALC || /^\\/calc(\\s|@|$)/.test(text)) action = 'calculator';\n  else if (text === MENU_ASK || /^\\/(ask|help)(\\s|@|$)/.test(text)) action = 'question';\n}\n\nif (!chatId || chatType !== 'private') return [];\n\nreturn [\n  {\n    json: {\n      chatId,\n      firstName,\n      callbackId,\n      action,\n      // Only these actions show the calculator button, so only they need the availability check.\n      needsCheck: ['start', 'calculator', 'retry'].includes(action),\n      // Name and username for the bot_users table (language and Premium are not kept).\n      user: from\n        ? {\n            id: from.id,\n            username: from.username ?? '',\n            first_name: from.first_name ?? '',\n            last_name: from.last_name ?? '',\n          }\n        : null,\n    },\n  },\n];\n"
+        "jsCode": "// «Разобрать апдейт»: turns a Telegram update into one action for the bot.\n// Only private chats are answered; anything else produces no items and the run stops.\n//\n// Actions for everyone: start, calculator, question, retry, news_on, news_off, unknown.\n// Extra actions for administrators (Telegram IDs in ADMIN_TELEGRAM_IDS):\n//   broadcast_help   — pressed «📣 Рассылка»;\n//   broadcast_draft  — sent any other message: it becomes a draft, the bot shows a preview;\n//   broadcast_send   — pressed «Отправить» under the preview;\n//   broadcast_cancel — pressed «Отмена» under the preview.\n\nconst MENU_CALC = '🧮 Калькулятор';\nconst MENU_ASK = '💬 Задать вопрос';\nconst MENU_BROADCAST = '📣 Рассылка';\n\nconst admins = String($env.ADMIN_TELEGRAM_IDS ?? '')\n  .split(/[\\s,;]+/)\n  .filter(Boolean);\n\nconst update = $input.first().json;\nlet chatId = null;\nlet chatType = 'private';\nlet firstName = '';\nlet callbackId = null;\nlet action = 'unknown';\nlet from = null;\nlet messageId = null; // the user's message, or the message under which a button was pressed\nlet sourceMessageId = null; // broadcast: the administrator's original message\n\nif (update.callback_query) {\n  const cq = update.callback_query;\n  chatId = cq.message?.chat?.id ?? cq.from?.id ?? null;\n  chatType = cq.message?.chat?.type ?? 'private';\n  firstName = cq.from?.first_name ?? '';\n  from = cq.from ?? null;\n  callbackId = cq.id;\n  messageId = cq.message?.message_id ?? null;\n  const data = String(cq.data ?? '');\n  const isAdmin = admins.includes(String(from?.id));\n  if (data === 'retry_calc') action = 'retry';\n  else if (data === 'news_on') action = 'news_on';\n  else if (data === 'news_off') action = 'news_off';\n  else if (isAdmin && /^bc_send:\\d+$/.test(data)) {\n    action = 'broadcast_send';\n    sourceMessageId = Number(data.split(':')[1]);\n  } else if (isAdmin && data === 'bc_cancel') action = 'broadcast_cancel';\n} else if (update.message) {\n  const m = update.message;\n  chatId = m.chat?.id ?? null;\n  chatType = m.chat?.type ?? 'private';\n  firstName = m.from?.first_name ?? '';\n  from = m.from ?? null;\n  messageId = m.message_id ?? null;\n  const isAdmin = admins.includes(String(from?.id));\n  const text = (m.text ?? '').trim();\n  const cmd = (name) => new RegExp(`^/${name}(\\\\s|@|$)`).test(text);\n  if (cmd('start')) action = 'start';\n  else if (text === MENU_CALC || cmd('calc')) action = 'calculator';\n  else if (text === MENU_ASK || cmd('ask') || cmd('help')) action = 'question';\n  else if (cmd('news')) action = 'news_on';\n  else if (cmd('stopnews')) action = 'news_off';\n  else if (isAdmin && (text === MENU_BROADCAST || cmd('broadcast'))) action = 'broadcast_help';\n  // Any other message from an administrator (text, photo, video, file…) is a broadcast draft.\n  else if (isAdmin && !text.startsWith('/') && !m.media_group_id) action = 'broadcast_draft';\n  else if (isAdmin && m.media_group_id) action = 'broadcast_album';\n}\n\nif (!chatId || chatType !== 'private') return [];\n\nconst isAdmin = admins.includes(String(from?.id));\n\nreturn [\n  {\n    json: {\n      chatId,\n      firstName,\n      callbackId,\n      action,\n      isAdmin,\n      messageId,\n      sourceMessageId,\n      // Only these actions show the calculator button, so only they need the availability check.\n      needsCheck: ['start', 'calculator', 'retry'].includes(action),\n      // Name and username for the bot_users table (language and Premium are not kept).\n      user: from\n        ? {\n            id: from.id,\n            username: from.username ?? '',\n            first_name: from.first_name ?? '',\n            last_name: from.last_name ?? '',\n          }\n        : null,\n    },\n  },\n];\n"
       }
     },
     {
@@ -121,7 +121,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// «Собрать ответ»: decides what the bot sends. Each output item is one Bot API call\n// ({ method, payload }); the next node sends them in order.\n// Links and texts come from environment variables set in docker-compose (.env).\n\nconst MENU_CALC = '🧮 Калькулятор';\nconst MENU_ASK = '💬 Задать вопрос';\n\nconst p = $('Разобрать апдейт').first().json;\nconst calcUrl = $env.CALCULATOR_URL;\nconst policyUrl = $env.PD_POLICY_URL;\nconst consentUrl = $env.PD_CONSENT_URL;\nconst specialistUrl = $env.SPECIALIST_URL;\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\n// The calculator counts as available only if its page answered 2xx and is really our app.\nlet available = false;\nif (p.needsCheck) {\n  const r = $input.first().json;\n  const body = typeof r.body === 'string' ? r.body : typeof r.data === 'string' ? r.data : '';\n  available = !r.error && r.statusCode >= 200 && r.statusCode < 300 && body.includes('sovest-mortgage-calculator');\n}\n\nconst menuKeyboard = {\n  keyboard: [[{ text: MENU_CALC }, { text: MENU_ASK }]],\n  resize_keyboard: true,\n  is_persistent: true,\n};\nconst calcButton = { inline_keyboard: [[{ text: '🧮 Открыть калькулятор', web_app: { url: calcUrl } }]] };\nconst retryButton = { inline_keyboard: [[{ text: '🔄 Повторить', callback_data: 'retry_calc' }]] };\n\nconst send = (text, reply_markup) => ({\n  json: {\n    method: 'sendMessage',\n    payload: { chat_id: p.chatId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup },\n  },\n});\n\nconst unavailable = () =>\n  send(\n    'Калькулятор сейчас не открывается — похоже, на сервере неполадки.\\n\\n' +\n      'Попробуйте ещё раз через пару минут: нажмите «Повторить».',\n    retryButton,\n  );\n\nconst welcomeText =\n  `Здравствуйте${p.firstName ? `, ${esc(p.firstName)}` : ''}! 👋\\n\\n` +\n  'Это ипотечный калькулятор центра недвижимости «Совесть». ' +\n  'Он покажет ежемесячный платёж, переплату и то, как досрочные погашения сокращают срок и проценты.\\n\\n' +\n  '⚠️ <b>Калькулятор носит ознакомительный характер.</b> Расчёт не является публичной офертой; ' +\n  'точные условия кредита определяет банк.\\n\\n' +\n  'Пользуясь ботом, вы соглашаетесь с ' +\n  `<a href=\"${esc(policyUrl)}\">политикой обработки персональных данных</a> и даёте ` +\n  `<a href=\"${esc(consentUrl)}\">согласие на обработку персональных данных</a>.`;\n\nconst out = [];\n\nif (p.callbackId) {\n  // Stops the loading spinner on the pressed inline button.\n  out.push({ json: { method: 'answerCallbackQuery', payload: { callback_query_id: p.callbackId } } });\n}\n\nswitch (p.action) {\n  case 'start':\n    if (available) {\n      out.push(send(welcomeText, calcButton));\n      // A message carries either buttons under it or the bottom menu, so the menu comes in a short second message.\n      out.push(send('Меню 👇', menuKeyboard));\n    } else {\n      out.push(send(welcomeText, menuKeyboard));\n      out.push(unavailable());\n    }\n    break;\n  case 'calculator':\n  case 'retry':\n    out.push(available ? send('Откройте калькулятор по кнопке ниже:', calcButton) : unavailable());\n    break;\n  case 'question':\n    out.push(\n      send(\n        'Ответим на вопросы об ипотеке, объектах и сделке. Напишите нашему специалисту — он ответит в личных сообщениях.',\n        { inline_keyboard: [[{ text: '✉️ Написать специалисту', url: specialistUrl }]] },\n      ),\n    );\n    break;\n  default:\n    out.push(send('Выберите действие в меню ниже 👇', menuKeyboard));\n}\n\nreturn out;\n"
+        "jsCode": "// «Собрать ответ»: decides what the bot sends. Each output item is one Bot API call\n// ({ method, payload }); the next node sends them in order.\n// Links and texts come from environment variables set in docker-compose (.env).\n\nconst MENU_CALC = '🧮 Калькулятор';\nconst MENU_ASK = '💬 Задать вопрос';\nconst MENU_BROADCAST = '📣 Рассылка';\n\nconst p = $('Разобрать апдейт').first().json;\nconst calcUrl = $env.CALCULATOR_URL;\nconst policyUrl = $env.PD_POLICY_URL;\nconst consentUrl = $env.PD_CONSENT_URL;\nconst specialistUrl = $env.SPECIALIST_URL;\nconst mailingConsentUrl = $env.PD_MAILING_CONSENT_URL;\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\n// The calculator counts as available only if its page answered 2xx and is really our app.\nlet available = false;\nif (p.needsCheck) {\n  const r = $input.first().json;\n  const body = typeof r.body === 'string' ? r.body : typeof r.data === 'string' ? r.data : '';\n  available = !r.error && r.statusCode >= 200 && r.statusCode < 300 && body.includes('sovest-mortgage-calculator');\n}\n\n// Administrators get one more menu button for broadcasts.\nconst menuKeyboard = {\n  keyboard: [[{ text: MENU_CALC }, { text: MENU_ASK }], ...(p.isAdmin ? [[{ text: MENU_BROADCAST }]] : [])],\n  resize_keyboard: true,\n  is_persistent: true,\n};\nconst calcButton = { inline_keyboard: [[{ text: '🧮 Открыть калькулятор', web_app: { url: calcUrl } }]] };\nconst retryButton = { inline_keyboard: [[{ text: '🔄 Повторить', callback_data: 'retry_calc' }]] };\n\nconst send = (text, reply_markup) => ({\n  json: {\n    method: 'sendMessage',\n    payload: { chat_id: p.chatId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup },\n  },\n});\n\n// Same buttons are used by «Подписка на новости» and «Рассылка» branches of the workflow.\nconst newsButton = { inline_keyboard: [[{ text: '🔔 Получать новости', callback_data: 'news_on' }]] };\nconst removeButtons = () => ({\n  json: {\n    method: 'editMessageReplyMarkup',\n    payload: { chat_id: p.chatId, message_id: p.messageId, reply_markup: { inline_keyboard: [] } },\n  },\n});\n\nconst newsPrompt =\n  'Прежде чем продолжим, один важный момент\\n\\n' +\n  'Я буду присылать в этот бот полезные материалы, если хотите получать – нажмите кнопку под этим сообщением👇 ' +\n  'Никакого спама, согласие нужно по требованиям законодательства РФ.\\n\\n' +\n  'Нажимая на кнопку, вы подтверждаете, что ' +\n  `<a href=\"${esc(mailingConsentUrl)}\">согласны получать информационные и рекламные рассылки</a>`;\n\nconst unavailable = () =>\n  send(\n    'Калькулятор сейчас не открывается — похоже, на сервере неполадки.\\n\\n' +\n      'Попробуйте ещё раз через пару минут: нажмите «Повторить».',\n    retryButton,\n  );\n\nconst welcomeText =\n  `Здравствуйте${p.firstName ? `, ${esc(p.firstName)}` : ''}! 👋\\n\\n` +\n  'Это ипотечный калькулятор центра недвижимости «Совесть». ' +\n  'Он покажет ежемесячный платёж, переплату и то, как досрочные погашения сокращают срок и проценты.\\n\\n' +\n  '⚠️ <b>Калькулятор носит ознакомительный характер.</b> Расчёт не является публичной офертой; ' +\n  'точные условия кредита определяет банк.\\n\\n' +\n  'Пользуясь ботом, вы соглашаетесь с ' +\n  `<a href=\"${esc(policyUrl)}\">политикой обработки персональных данных</a> и даёте ` +\n  `<a href=\"${esc(consentUrl)}\">согласие на обработку персональных данных</a>.`;\n\nconst out = [];\n\nif (p.callbackId) {\n  // Stops the loading spinner on the pressed inline button.\n  out.push({ json: { method: 'answerCallbackQuery', payload: { callback_query_id: p.callbackId } } });\n}\n\nswitch (p.action) {\n  case 'start':\n    if (available) {\n      out.push(send(welcomeText, calcButton));\n      // A message carries either buttons under it or the bottom menu, so the menu comes in a short second message.\n      out.push(send('Меню 👇', menuKeyboard));\n    } else {\n      out.push(send(welcomeText, menuKeyboard));\n      out.push(unavailable());\n    }\n    out.push(send(newsPrompt, newsButton));\n    break;\n  case 'news_on':\n    if (p.callbackId) out.push(removeButtons());\n    out.push(\n      send(\n        'Готово, вы подписаны на новости 🔔\\n\\n' +\n          'Отписаться можно в любой момент: кнопкой под любой рассылкой или командой /stopnews.',\n        p.callbackId ? undefined : menuKeyboard,\n      ),\n    );\n    break;\n  case 'news_off':\n    if (p.callbackId) out.push(removeButtons());\n    out.push(\n      send(\n        'Вы отписались от новостей — больше присылать их не будем.\\n\\nПодписаться снова: команда /news.',\n        p.callbackId ? undefined : menuKeyboard,\n      ),\n    );\n    break;\n  case 'broadcast_help':\n    out.push(\n      send(\n        '📣 <b>Рассылка подписчикам</b>\\n\\n' +\n          'Пришлите сюда сообщение так, как его должны увидеть подписчики: текст, фото или видео с подписью, файл. ' +\n          'Форматирование и ссылки сохранятся.\\n\\n' +\n          'Бот покажет предпросмотр с кнопками «Отправить» и «Отмена». До нажатия «Отправить» никто ничего не получит.',\n        menuKeyboard,\n      ),\n    );\n    break;\n  case 'broadcast_album':\n    out.push(send('Альбом из нескольких фото разослать не получится. Пришлите одно фото или видео с подписью.'));\n    break;\n  case 'broadcast_draft':\n    out.push(send('Предпросмотр 👇 Так рассылку увидят подписчики. Проверьте и нажмите «Отправить».'));\n    out.push({\n      json: {\n        method: 'copyMessage',\n        payload: {\n          chat_id: p.chatId,\n          from_chat_id: p.chatId,\n          message_id: p.messageId,\n          reply_markup: {\n            inline_keyboard: [\n              [\n                { text: '✅ Отправить подписчикам', callback_data: `bc_send:${p.messageId}` },\n                { text: 'Отмена', callback_data: 'bc_cancel' },\n              ],\n            ],\n          },\n        },\n      },\n    });\n    break;\n  case 'broadcast_cancel':\n    out.push(removeButtons());\n    out.push(send('Рассылка отменена.'));\n    break;\n  case 'broadcast_send':\n    // The sending itself runs in the «Рассылка» branch; here only the buttons go away.\n    out.push(removeButtons());\n    out.push(send('Отправляю рассылку… Когда закончу, пришлю отчёт.'));\n    break;\n  case 'calculator':\n  case 'retry':\n    out.push(available ? send('Откройте калькулятор по кнопке ниже:', calcButton) : unavailable());\n    break;\n  case 'question':\n    out.push(\n      send(\n        'Ответим на вопросы об ипотеке, объектах и сделке. Напишите нашему специалисту — он ответит в личных сообщениях.',\n        { inline_keyboard: [[{ text: '✉️ Написать специалисту', url: specialistUrl }]] },\n      ),\n    );\n    break;\n  default:\n    out.push(send('Выберите действие в меню ниже 👇', menuKeyboard));\n}\n\nreturn out;\n"
       }
     },
     {
@@ -238,6 +238,673 @@
           "__rl": true,
           "mode": "name",
           "value": "bot_users"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.telegram_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0301",
+      "name": "Подписка на новости?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        1000
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ ['news_on', 'news_off'].includes($json.action) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0302",
+      "name": "Подписка: строка",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        1000
+      ],
+      "parameters": {
+        "jsCode": "// «Подписка: строка»: one news_subscribers row per Telegram user.\n// news_on  — the user pressed «🔔 Получать новости» (or /news): this is the consent to mailings, its time is kept;\n// news_off — the user unsubscribed (button under a broadcast or /stopnews).\n\nconst p = $('Разобрать апдейт').first().json;\nconst u = p.user;\nif (!u || !u.id) return [];\n\nconst clip = (s, n) => String(s ?? '').slice(0, n);\nconst now = new Date().toISOString();\n\nconst row = {\n  telegram_id: String(u.id),\n  username: clip(u.username, 64),\n  first_name: clip(u.first_name, 128),\n  subscribed: p.action === 'news_on',\n};\nif (p.action === 'news_on') row.subscribed_at = now;\nelse {\n  row.unsubscribed_at = now;\n  row.unsubscribe_reason = 'user';\n}\n\nreturn [{ json: row }];\n"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0303",
+      "name": "Подписчики: создать таблицу, если нет",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        1000
+      ],
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "news_subscribers",
+        "columns": {
+          "column": [
+            {
+              "name": "telegram_id",
+              "type": "string"
+            },
+            {
+              "name": "username",
+              "type": "string"
+            },
+            {
+              "name": "first_name",
+              "type": "string"
+            },
+            {
+              "name": "subscribed",
+              "type": "boolean"
+            },
+            {
+              "name": "subscribed_at",
+              "type": "date"
+            },
+            {
+              "name": "unsubscribed_at",
+              "type": "date"
+            },
+            {
+              "name": "unsubscribe_reason",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0304",
+      "name": "Взять строку подписки",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        1000
+      ],
+      "parameters": {
+        "jsCode": "return $('Подписка: строка').all();"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0305",
+      "name": "Подписчики: создать или обновить",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        1000
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "news_subscribers"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.telegram_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0401",
+      "name": "Отправить рассылку?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        1300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c4",
+              "leftValue": "={{ $json.action === 'broadcast_send' && $json.isAdmin === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0402",
+      "name": "Рассылки: создать таблицу, если нет",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        1300
+      ],
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "broadcasts",
+        "columns": {
+          "column": [
+            {
+              "name": "source_message_id",
+              "type": "string"
+            },
+            {
+              "name": "admin_id",
+              "type": "string"
+            },
+            {
+              "name": "started_at",
+              "type": "date"
+            },
+            {
+              "name": "recipients",
+              "type": "number"
+            },
+            {
+              "name": "delivered",
+              "type": "number"
+            },
+            {
+              "name": "blocked",
+              "type": "number"
+            },
+            {
+              "name": "failed",
+              "type": "number"
+            },
+            {
+              "name": "errors",
+              "type": "string"
+            },
+            {
+              "name": "finished_at",
+              "type": "date"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0403",
+      "name": "Эту рассылку уже отправляли?",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        1300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "broadcasts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "source_message_id",
+              "condition": "eq",
+              "keyValue": "={{ String($('Разобрать апдейт').first().json.sourceMessageId) }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0404",
+      "name": "Уже отправлена?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        1300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c5",
+              "leftValue": "={{ !!$json.source_message_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0405",
+      "name": "Сообщить: уже отправлена",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        1200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TELEGRAM_API_URL || 'https://api.telegram.org') + '/bot' + $env.TELEGRAM_BOT_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Разобрать апдейт').first().json.chatId, text: 'Эта рассылка уже отправлена — второй раз она не уйдёт.' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0406",
+      "name": "Запись о рассылке",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        1400
+      ],
+      "parameters": {
+        "jsCode": "const p = $('Разобрать апдейт').first().json;\nreturn [{ json: { source_message_id: String(p.sourceMessageId), admin_id: String(p.user.id), started_at: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0407",
+      "name": "Рассылки: добавить запись",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        1400
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "broadcasts"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0408",
+      "name": "Подписчики: таблица для рассылки",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1920,
+        1400
+      ],
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "news_subscribers",
+        "columns": {
+          "column": [
+            {
+              "name": "telegram_id",
+              "type": "string"
+            },
+            {
+              "name": "username",
+              "type": "string"
+            },
+            {
+              "name": "first_name",
+              "type": "string"
+            },
+            {
+              "name": "subscribed",
+              "type": "boolean"
+            },
+            {
+              "name": "subscribed_at",
+              "type": "date"
+            },
+            {
+              "name": "unsubscribed_at",
+              "type": "date"
+            },
+            {
+              "name": "unsubscribe_reason",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0409",
+      "name": "Подписчики",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        1400
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "news_subscribers"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "subscribed",
+              "condition": "isTrue"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0410",
+      "name": "Кому отправить",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        1400
+      ],
+      "parameters": {
+        "jsCode": "// «Кому отправить»: one Bot API copyMessage call per subscriber.\n// The administrator's original message is copied as is (text, photo, formatting),\n// with an «Отписаться» button under it.\n\nconst p = $('Разобрать апдейт').first().json;\nconst unsubscribe = { inline_keyboard: [[{ text: '🔕 Отписаться от новостей', callback_data: 'news_off' }]] };\n\nconst ids = [\n  ...new Set(\n    $input\n      .all()\n      .map((i) => i.json)\n      .filter((r) => r.telegram_id && r.subscribed === true)\n      .map((r) => String(r.telegram_id)),\n  ),\n];\n\n// No subscribers: one empty item, so the report still goes out.\nif (ids.length === 0) return [{ json: { none: true } }];\n\nreturn ids.map((id) => ({\n  json: {\n    telegram_id: id,\n    payload: { chat_id: id, from_chat_id: p.chatId, message_id: p.sourceMessageId, reply_markup: unsubscribe },\n  },\n}));\n"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0411",
+      "name": "Есть подписчики?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2640,
+        1400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c6",
+              "leftValue": "={{ !$json.none }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0412",
+      "name": "Разослать",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        1300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TELEGRAM_API_URL || 'https://api.telegram.org') + '/bot' + $env.TELEGRAM_BOT_TOKEN + '/copyMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 10000,
+          "batching": {
+            "batch": {
+              "batchSize": 20,
+              "batchInterval": 1100
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0413",
+      "name": "Итоги рассылки",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        1400
+      ],
+      "parameters": {
+        "jsCode": "// «Итоги рассылки»: counts deliveries, finds people who blocked the bot, prepares the report.\n// Telegram answers 403 when the user blocked the bot or deleted the account: they are unsubscribed.\n\nconst p = $('Разобрать апдейт').first().json;\nconst targets = $('Кому отправить').all().map((i) => i.json);\nconst results = $('Разослать').isExecuted ? $('Разослать').all().map((i) => i.json) : [];\n\nlet delivered = 0;\nconst blocked = [];\nconst failed = [];\ntargets.forEach((t, i) => {\n  if (t.none) return;\n  const r = results[i] ?? {};\n  const body = typeof r.body === 'object' && r.body ? r.body : {};\n  if (r.statusCode === 200 && body.ok) delivered += 1;\n  else if (r.statusCode === 403) blocked.push(t.telegram_id);\n  else failed.push(`${t.telegram_id}: ${body.description ?? r.statusCode ?? r.error?.message ?? 'нет ответа'}`);\n});\nconst total = targets.filter((t) => !t.none).length;\n\nlet text;\nif (total === 0) {\n  text = 'Подписчиков пока нет — рассылка никому не отправлена.';\n} else {\n  text = `📣 Рассылка отправлена\\n\\nПодписчиков: ${total}\\nДоставлено: ${delivered}`;\n  if (blocked.length) text += `\\nЗаблокировали бота: ${blocked.length} (они отписаны)`;\n  if (failed.length) text += `\\nНе доставлено по другим причинам: ${failed.length}`;\n}\n\nreturn [\n  {\n    json: {\n      report: { chat_id: p.chatId, text },\n      log: {\n        source_message_id: String(p.sourceMessageId),\n        recipients: total,\n        delivered,\n        blocked: blocked.length,\n        failed: failed.length,\n        errors: failed.slice(0, 20).join('\\n'),\n        finished_at: new Date().toISOString(),\n      },\n      blocked,\n    },\n  },\n];\n"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0414",
+      "name": "Отчёт администратору",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        1400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TELEGRAM_API_URL || 'https://api.telegram.org') + '/bot' + $env.TELEGRAM_BOT_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.report) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0415",
+      "name": "Взять итоги",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        1400
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('Итоги рассылки').first().json.log }];"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0416",
+      "name": "Рассылки: сохранить итоги",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3840,
+        1400
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "broadcasts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "source_message_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.source_message_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0417",
+      "name": "Заблокировавшие бота",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        1400
+      ],
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nreturn $('Итоги рассылки').first().json.blocked.map((id) => ({\n  json: { telegram_id: id, subscribed: false, unsubscribed_at: now, unsubscribe_reason: 'blocked' },\n}));"
+      }
+    },
+    {
+      "id": "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0418",
+      "name": "Подписчики: отписать заблокировавших",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4320,
+        1400
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "news_subscribers"
         },
         "matchType": "allConditions",
         "filters": {
@@ -552,6 +1219,16 @@
             "node": "Карточка пользователя",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Подписка на новости?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Отправить рассылку?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -646,6 +1323,240 @@
         [
           {
             "node": "По одному сообщению",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подписка на новости?": {
+      "main": [
+        [
+          {
+            "node": "Подписка: строка",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подписка: строка": {
+      "main": [
+        [
+          {
+            "node": "Подписчики: создать таблицу, если нет",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подписчики: создать таблицу, если нет": {
+      "main": [
+        [
+          {
+            "node": "Взять строку подписки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Взять строку подписки": {
+      "main": [
+        [
+          {
+            "node": "Подписчики: создать или обновить",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить рассылку?": {
+      "main": [
+        [
+          {
+            "node": "Рассылки: создать таблицу, если нет",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Рассылки: создать таблицу, если нет": {
+      "main": [
+        [
+          {
+            "node": "Эту рассылку уже отправляли?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Эту рассылку уже отправляли?": {
+      "main": [
+        [
+          {
+            "node": "Уже отправлена?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Уже отправлена?": {
+      "main": [
+        [
+          {
+            "node": "Сообщить: уже отправлена",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Запись о рассылке",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Запись о рассылке": {
+      "main": [
+        [
+          {
+            "node": "Рассылки: добавить запись",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Рассылки: добавить запись": {
+      "main": [
+        [
+          {
+            "node": "Подписчики: таблица для рассылки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подписчики: таблица для рассылки": {
+      "main": [
+        [
+          {
+            "node": "Подписчики",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подписчики": {
+      "main": [
+        [
+          {
+            "node": "Кому отправить",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Кому отправить": {
+      "main": [
+        [
+          {
+            "node": "Есть подписчики?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Есть подписчики?": {
+      "main": [
+        [
+          {
+            "node": "Разослать",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Итоги рассылки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разослать": {
+      "main": [
+        [
+          {
+            "node": "Итоги рассылки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Итоги рассылки": {
+      "main": [
+        [
+          {
+            "node": "Отчёт администратору",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отчёт администратору": {
+      "main": [
+        [
+          {
+            "node": "Взять итоги",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Взять итоги": {
+      "main": [
+        [
+          {
+            "node": "Рассылки: сохранить итоги",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Рассылки: сохранить итоги": {
+      "main": [
+        [
+          {
+            "node": "Заблокировавшие бота",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Заблокировавшие бота": {
+      "main": [
+        [
+          {
+            "node": "Подписчики: отписать заблокировавших",
             "type": "main",
             "index": 0
           }
