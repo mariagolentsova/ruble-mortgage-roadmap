@@ -24,6 +24,32 @@ export const USERS_TABLE_COLUMNS = [
   ["last_seen_at", "date"],
 ];
 
+// Mailing subscribers: subscribed_at = time of the consent to mailings (button «Получать новости»).
+export const NEWS_TABLE_NAME = "news_subscribers";
+export const NEWS_TABLE_COLUMNS = [
+  ["telegram_id", "string"],
+  ["username", "string"],
+  ["first_name", "string"],
+  ["subscribed", "boolean"],
+  ["subscribed_at", "date"],
+  ["unsubscribed_at", "date"],
+  ["unsubscribe_reason", "string"],
+];
+
+// One row per broadcast: protects from sending twice and keeps the delivery report.
+export const BROADCASTS_TABLE_NAME = "broadcasts";
+export const BROADCASTS_TABLE_COLUMNS = [
+  ["source_message_id", "string"],
+  ["admin_id", "string"],
+  ["started_at", "date"],
+  ["recipients", "number"],
+  ["delivered", "number"],
+  ["blocked", "number"],
+  ["failed", "number"],
+  ["errors", "string"],
+  ["finished_at", "date"],
+];
+
 export const TABLE_COLUMNS = [
   ["telegram_id", "string"],
   ["username", "string"],
@@ -57,6 +83,74 @@ const node = (id, name, type, typeVersion, position, parameters, extra = {}) => 
   parameters,
   ...extra,
 });
+
+const TELEGRAM_URL =
+  "={{ ($env.TELEGRAM_API_URL || 'https://api.telegram.org') + '/bot' + $env.TELEGRAM_BOT_TOKEN + '/";
+
+const ifTrue = (id, leftValue, operator) => ({
+  conditions: {
+    options: { caseSensitive: true, leftValue: "", typeValidation: "loose", version: 2 },
+    conditions: [{ id, leftValue, rightValue: "", operator }],
+    combinator: "and",
+  },
+  looseTypeValidation: true,
+  options: {},
+});
+const isTrue = { type: "boolean", operation: "true", singleValue: true };
+
+const createTable = (id, name, position, table, columns) =>
+  node(
+    id,
+    name,
+    "n8n-nodes-base.dataTable",
+    1.1,
+    position,
+    {
+      resource: "table",
+      operation: "create",
+      tableName: table,
+      columns: { column: columns.map(([n, type]) => ({ name: n, type })) },
+      options: { createIfNotExists: true },
+    },
+    { onError: "continueRegularOutput" },
+  );
+
+const upsertBy = (id, name, position, table, key, extra = {}) =>
+  node(
+    id,
+    name,
+    "n8n-nodes-base.dataTable",
+    1.1,
+    position,
+    {
+      resource: "row",
+      operation: "upsert",
+      dataTableId: { __rl: true, mode: "name", value: table },
+      matchType: "allConditions",
+      filters: { conditions: [{ keyName: key, condition: "eq", keyValue: `={{ $json.${key} }}` }] },
+      columns: { mappingMode: "autoMapInputData", value: {}, matchingColumns: [], schema: [] },
+      options: {},
+    },
+    { onError: "continueRegularOutput", ...extra },
+  );
+
+const telegramCall = (id, name, position, method, payloadExpr, options = {}, extra = {}) =>
+  node(
+    id,
+    name,
+    "n8n-nodes-base.httpRequest",
+    4.2,
+    position,
+    {
+      method: "POST",
+      url: TELEGRAM_URL + method + "' }}",
+      sendBody: true,
+      specifyBody: "json",
+      jsonBody: `={{ JSON.stringify(${payloadExpr}) }}`,
+      options: { timeout: 10000, ...options },
+    },
+    { onError: "continueRegularOutput", ...extra },
+  );
 
 const nodes = [
   // ---------- Bot ----------
@@ -171,6 +265,141 @@ const nodes = [
     { onError: "continueRegularOutput" },
   ),
 
+  // ---------- News subscription (button «Получать новости», «Отписаться», /news, /stopnews) ----------
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0301", "Подписка на новости?", "n8n-nodes-base.if", 2.2, [480, 1000], ifTrue(
+    "c3",
+    "={{ ['news_on', 'news_off'].includes($json.action) }}",
+    isTrue,
+  )),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0302", "Подписка: строка", "n8n-nodes-base.code", 2, [720, 1000], {
+    jsCode: code("news-row.js"),
+  }),
+  createTable("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0303", "Подписчики: создать таблицу, если нет", [960, 1000], NEWS_TABLE_NAME, NEWS_TABLE_COLUMNS),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0304", "Взять строку подписки", "n8n-nodes-base.code", 2, [1200, 1000], {
+    jsCode: "return $('Подписка: строка').all();",
+  }),
+  upsertBy("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0305", "Подписчики: создать или обновить", [1440, 1000], NEWS_TABLE_NAME, "telegram_id"),
+
+  // ---------- Broadcast (administrator pressed «Отправить подписчикам») ----------
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0401", "Отправить рассылку?", "n8n-nodes-base.if", 2.2, [480, 1300], ifTrue(
+    "c4",
+    "={{ $json.action === 'broadcast_send' && $json.isAdmin === true }}",
+    isTrue,
+  )),
+  createTable("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0402", "Рассылки: создать таблицу, если нет", [720, 1300], BROADCASTS_TABLE_NAME, BROADCASTS_TABLE_COLUMNS),
+  node(
+    "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0403",
+    "Эту рассылку уже отправляли?",
+    "n8n-nodes-base.dataTable",
+    1.1,
+    [960, 1300],
+    {
+      resource: "row",
+      operation: "get",
+      dataTableId: { __rl: true, mode: "name", value: BROADCASTS_TABLE_NAME },
+      matchType: "allConditions",
+      filters: {
+        conditions: [
+          { keyName: "source_message_id", condition: "eq", keyValue: "={{ String($('Разобрать апдейт').first().json.sourceMessageId) }}" },
+        ],
+      },
+      limit: 1,
+    },
+    { onError: "continueRegularOutput", alwaysOutputData: true },
+  ),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0404", "Уже отправлена?", "n8n-nodes-base.if", 2.2, [1200, 1300], ifTrue(
+    "c5",
+    "={{ !!$json.source_message_id }}",
+    isTrue,
+  )),
+  telegramCall(
+    "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0405",
+    "Сообщить: уже отправлена",
+    [1440, 1200],
+    "sendMessage",
+    "{ chat_id: $('Разобрать апдейт').first().json.chatId, text: 'Эта рассылка уже отправлена — второй раз она не уйдёт.' }",
+  ),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0406", "Запись о рассылке", "n8n-nodes-base.code", 2, [1440, 1400], {
+    jsCode: [
+      "const p = $('Разобрать апдейт').first().json;",
+      "return [{ json: { source_message_id: String(p.sourceMessageId), admin_id: String(p.user.id), started_at: new Date().toISOString() } }];",
+    ].join("\n"),
+  }),
+  node(
+    "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0407",
+    "Рассылки: добавить запись",
+    "n8n-nodes-base.dataTable",
+    1.1,
+    [1680, 1400],
+    {
+      resource: "row",
+      operation: "insert",
+      dataTableId: { __rl: true, mode: "name", value: BROADCASTS_TABLE_NAME },
+      columns: { mappingMode: "autoMapInputData", value: {}, matchingColumns: [], schema: [] },
+      options: {},
+    },
+  ),
+  createTable("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0408", "Подписчики: таблица для рассылки", [1920, 1400], NEWS_TABLE_NAME, NEWS_TABLE_COLUMNS),
+  node(
+    "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0409",
+    "Подписчики",
+    "n8n-nodes-base.dataTable",
+    1.1,
+    [2160, 1400],
+    {
+      resource: "row",
+      operation: "get",
+      dataTableId: { __rl: true, mode: "name", value: NEWS_TABLE_NAME },
+      matchType: "allConditions",
+      filters: { conditions: [{ keyName: "subscribed", condition: "isTrue" }] },
+      returnAll: true,
+    },
+    { onError: "continueRegularOutput", alwaysOutputData: true },
+  ),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0410", "Кому отправить", "n8n-nodes-base.code", 2, [2400, 1400], {
+    jsCode: code("broadcast-recipients.js"),
+  }),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0411", "Есть подписчики?", "n8n-nodes-base.if", 2.2, [2640, 1400], ifTrue(
+    "c6",
+    "={{ !$json.none }}",
+    isTrue,
+  )),
+  // About 18 messages a second: Telegram allows a bot up to 30.
+  telegramCall(
+    "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0412",
+    "Разослать",
+    [2880, 1300],
+    "copyMessage",
+    "$json.payload",
+    {
+      batching: { batch: { batchSize: 20, batchInterval: 1100 } },
+      response: { response: { fullResponse: true, neverError: true } },
+    },
+  ),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0413", "Итоги рассылки", "n8n-nodes-base.code", 2, [3120, 1400], {
+    jsCode: code("broadcast-report.js"),
+  }),
+  telegramCall(
+    "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0414",
+    "Отчёт администратору",
+    [3360, 1400],
+    "sendMessage",
+    "$json.report",
+  ),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0415", "Взять итоги", "n8n-nodes-base.code", 2, [3600, 1400], {
+    jsCode: "return [{ json: $('Итоги рассылки').first().json.log }];",
+  }),
+  upsertBy("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0416", "Рассылки: сохранить итоги", [3840, 1400], BROADCASTS_TABLE_NAME, "source_message_id"),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0417", "Заблокировавшие бота", "n8n-nodes-base.code", 2, [4080, 1400], {
+    jsCode: [
+      "const now = new Date().toISOString();",
+      "return $('Итоги рассылки').first().json.blocked.map((id) => ({",
+      "  json: { telegram_id: id, subscribed: false, unsubscribed_at: now, unsubscribe_reason: 'blocked' },",
+      "}));",
+    ].join("\n"),
+  }),
+  upsertBy("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0418", "Подписчики: отписать заблокировавших", [4320, 1400], NEWS_TABLE_NAME, "telegram_id"),
+
   // ---------- Save calculation ----------
   node(
     "6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0101",
@@ -262,6 +491,8 @@ const connections = {
       [
         { node: "Нужна проверка калькулятора?", type: "main", index: 0 },
         { node: "Карточка пользователя", type: "main", index: 0 },
+        { node: "Подписка на новости?", type: "main", index: 0 },
+        { node: "Отправить рассылку?", type: "main", index: 0 },
       ],
     ],
   },
@@ -274,6 +505,28 @@ const connections = {
   // Output 0 = done (nothing more to do), output 1 = next message.
   "По одному сообщению": main(null, "Отправить в Telegram"),
   "Отправить в Telegram": main("По одному сообщению"),
+
+  "Подписка на новости?": main("Подписка: строка"),
+  "Подписка: строка": main("Подписчики: создать таблицу, если нет"),
+  "Подписчики: создать таблицу, если нет": main("Взять строку подписки"),
+  "Взять строку подписки": main("Подписчики: создать или обновить"),
+
+  "Отправить рассылку?": main("Рассылки: создать таблицу, если нет"),
+  "Рассылки: создать таблицу, если нет": main("Эту рассылку уже отправляли?"),
+  "Эту рассылку уже отправляли?": main("Уже отправлена?"),
+  "Уже отправлена?": main("Сообщить: уже отправлена", "Запись о рассылке"),
+  "Запись о рассылке": main("Рассылки: добавить запись"),
+  "Рассылки: добавить запись": main("Подписчики: таблица для рассылки"),
+  "Подписчики: таблица для рассылки": main("Подписчики"),
+  "Подписчики": main("Кому отправить"),
+  "Кому отправить": main("Есть подписчики?"),
+  "Есть подписчики?": main("Разослать", "Итоги рассылки"),
+  "Разослать": main("Итоги рассылки"),
+  "Итоги рассылки": main("Отчёт администратору"),
+  "Отчёт администратору": main("Взять итоги"),
+  "Взять итоги": main("Рассылки: сохранить итоги"),
+  "Рассылки: сохранить итоги": main("Заблокировавшие бота"),
+  "Заблокировавшие бота": main("Подписчики: отписать заблокировавших"),
 
   "Калькулятор: сохранить расчёт": main("Проверить подпись Telegram"),
   "Проверить подпись Telegram": main("Подпись верна?"),

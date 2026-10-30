@@ -1,5 +1,5 @@
 """Wraps the personal-data documents written for this project (docs/legal/*.src.html) into
-static pages in the calculator's style: public/privacy.html and public/consent.html.
+static pages in the calculator's style: public/privacy.html, public/consent.html and public/mailing.html.
 Edit the .src.html files, then run:  python3 docs/legal/build_documents.py"""
 import html, re
 from pathlib import Path
@@ -59,7 +59,7 @@ PAGE = """<!doctype html>
 </html>
 """
 
-for name in ("privacy", "consent"):
+for name in ("privacy", "consent", "mailing"):
     body = (root / "docs/legal" / f"{name}.src.html").read_text(encoding="utf-8").strip()
     title = html.unescape(re.sub(r"<[^>]+>", "", re.search(r"<h1>(.*?)</h1>", body, re.S).group(1))).strip()
     out = root / "public" / f"{name}.html"

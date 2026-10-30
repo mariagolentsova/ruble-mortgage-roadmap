@@ -4,12 +4,14 @@
 
 const MENU_CALC = '🧮 Калькулятор';
 const MENU_ASK = '💬 Задать вопрос';
+const MENU_BROADCAST = '📣 Рассылка';
 
 const p = $('Разобрать апдейт').first().json;
 const calcUrl = $env.CALCULATOR_URL;
 const policyUrl = $env.PD_POLICY_URL;
 const consentUrl = $env.PD_CONSENT_URL;
 const specialistUrl = $env.SPECIALIST_URL;
+const mailingConsentUrl = $env.PD_MAILING_CONSENT_URL;
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -21,8 +23,9 @@ if (p.needsCheck) {
   available = !r.error && r.statusCode >= 200 && r.statusCode < 300 && body.includes('sovest-mortgage-calculator');
 }
 
+// Administrators get one more menu button for broadcasts.
 const menuKeyboard = {
-  keyboard: [[{ text: MENU_CALC }, { text: MENU_ASK }]],
+  keyboard: [[{ text: MENU_CALC }, { text: MENU_ASK }], ...(p.isAdmin ? [[{ text: MENU_BROADCAST }]] : [])],
   resize_keyboard: true,
   is_persistent: true,
 };
@@ -35,6 +38,22 @@ const send = (text, reply_markup) => ({
     payload: { chat_id: p.chatId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup },
   },
 });
+
+// Same buttons are used by «Подписка на новости» and «Рассылка» branches of the workflow.
+const newsButton = { inline_keyboard: [[{ text: '🔔 Получать новости', callback_data: 'news_on' }]] };
+const removeButtons = () => ({
+  json: {
+    method: 'editMessageReplyMarkup',
+    payload: { chat_id: p.chatId, message_id: p.messageId, reply_markup: { inline_keyboard: [] } },
+  },
+});
+
+const newsPrompt =
+  'Прежде чем продолжим, один важный момент\n\n' +
+  'Я буду присылать в этот бот полезные материалы, если хотите получать – нажмите кнопку под этим сообщением👇 ' +
+  'Никакого спама, согласие нужно по требованиям законодательства РФ.\n\n' +
+  'Нажимая на кнопку, вы подтверждаете, что ' +
+  `<a href="${esc(mailingConsentUrl)}">согласны получать информационные и рекламные рассылки</a>`;
 
 const unavailable = () =>
   send(
@@ -70,6 +89,70 @@ switch (p.action) {
       out.push(send(welcomeText, menuKeyboard));
       out.push(unavailable());
     }
+    out.push(send(newsPrompt, newsButton));
+    break;
+  case 'news_on':
+    if (p.callbackId) out.push(removeButtons());
+    out.push(
+      send(
+        'Готово, вы подписаны на новости 🔔\n\n' +
+          'Отписаться можно в любой момент: кнопкой под любой рассылкой или командой /stopnews.',
+        p.callbackId ? undefined : menuKeyboard,
+      ),
+    );
+    break;
+  case 'news_off':
+    if (p.callbackId) out.push(removeButtons());
+    out.push(
+      send(
+        'Вы отписались от новостей — больше присылать их не будем.\n\nПодписаться снова: команда /news.',
+        p.callbackId ? undefined : menuKeyboard,
+      ),
+    );
+    break;
+  case 'broadcast_help':
+    out.push(
+      send(
+        '📣 <b>Рассылка подписчикам</b>\n\n' +
+          'Пришлите сюда сообщение так, как его должны увидеть подписчики: текст, фото или видео с подписью, файл. ' +
+          'Форматирование и ссылки сохранятся.\n\n' +
+          'Бот покажет предпросмотр с кнопками «Отправить» и «Отмена». До нажатия «Отправить» никто ничего не получит.',
+        menuKeyboard,
+      ),
+    );
+    break;
+  case 'broadcast_album':
+    out.push(send('Альбом из нескольких фото разослать не получится. Пришлите одно фото или видео с подписью.'));
+    break;
+  case 'broadcast_draft':
+    out.push(send('Предпросмотр 👇 Так рассылку увидят подписчики. Проверьте и нажмите «Отправить».'));
+    out.push({
+      json: {
+        method: 'copyMessage',
+        payload: {
+          chat_id: p.chatId,
+          from_chat_id: p.chatId,
+          message_id: p.messageId,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '✅ Отправить подписчикам', callback_data: `bc_send:${p.messageId}` },
+                { text: 'Отмена', callback_data: 'bc_cancel' },
+              ],
+            ],
+          },
+        },
+      },
+    });
+    break;
+  case 'broadcast_cancel':
+    out.push(removeButtons());
+    out.push(send('Рассылка отменена.'));
+    break;
+  case 'broadcast_send':
+    // The sending itself runs in the «Рассылка» branch; here only the buttons go away.
+    out.push(removeButtons());
+    out.push(send('Отправляю рассылку… Когда закончу, пришлю отчёт.'));
     break;
   case 'calculator':
   case 'retry':
