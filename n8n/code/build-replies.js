@@ -55,6 +55,9 @@ const newsPrompt =
   'Нажимая на кнопку, вы подтверждаете, что ' +
   `<a href="${esc(mailingConsentUrl)}">согласны получать информационные и рекламные рассылки</a>`;
 
+// Some phones can't open the Mini App inside Telegram (stuck in-app browser, VPN): offer the same page in a browser.
+const browserHint = `\n\nЕсли калькулятор не открылся в Telegram, откройте его в браузере по <a href="${esc(calcUrl)}">ссылке</a>.`;
+
 const unavailable = () =>
   send(
     'Калькулятор сейчас не открывается — похоже, на сервере неполадки.\n\n' +
@@ -84,7 +87,7 @@ switch (p.action) {
     if (available) {
       // A message carries either buttons under it or the bottom menu. The welcome has the calculator button,
       // the bottom menu comes with the next reply (e.g. «Готово, вы подписаны»); commands are in the «Меню» button.
-      out.push(send(welcomeText, calcButton));
+      out.push(send(welcomeText + browserHint, calcButton));
     } else {
       out.push(send(welcomeText, menuKeyboard));
       out.push(unavailable());
@@ -156,7 +159,7 @@ switch (p.action) {
     break;
   case 'calculator':
   case 'retry':
-    out.push(available ? send('Откройте калькулятор по кнопке ниже:', calcButton) : unavailable());
+    out.push(available ? send('Откройте калькулятор по кнопке ниже.' + browserHint, calcButton) : unavailable());
     break;
   case 'question':
     out.push(
