@@ -82,9 +82,9 @@ if (p.callbackId) {
 switch (p.action) {
   case 'start':
     if (available) {
+      // A message carries either buttons under it or the bottom menu. The welcome has the calculator button,
+      // the bottom menu comes with the next reply (e.g. «Готово, вы подписаны»); commands are in the «Меню» button.
       out.push(send(welcomeText, calcButton));
-      // A message carries either buttons under it or the bottom menu, so the menu comes in a short second message.
-      out.push(send('Меню 👇', menuKeyboard));
     } else {
       out.push(send(welcomeText, menuKeyboard));
       out.push(unavailable());
@@ -97,7 +97,7 @@ switch (p.action) {
       send(
         'Готово, вы подписаны на новости 🔔\n\n' +
           'Отписаться можно в любой момент: кнопкой под любой рассылкой или командой /stopnews.',
-        p.callbackId ? undefined : menuKeyboard,
+        menuKeyboard,
       ),
     );
     break;
@@ -106,7 +106,7 @@ switch (p.action) {
     out.push(
       send(
         'Вы отписались от новостей — больше присылать их не будем.\n\nПодписаться снова: команда /news.',
-        p.callbackId ? undefined : menuKeyboard,
+        menuKeyboard,
       ),
     );
     break;
