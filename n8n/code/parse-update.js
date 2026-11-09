@@ -1,7 +1,8 @@
 // «Разобрать апдейт»: turns a Telegram update into one action for the bot.
 // Only private chats are answered; anything else produces no items and the run stops.
 //
-// Actions for everyone: start, calculator, question, retry, news_on, news_off, unknown.
+// Actions for everyone: start, consent, calculator, question, retry, news_on, news_off, unknown.
+// consent — pressed «СОГЛАСЕН / СОГЛАСНА» under the /start message: consent to personal data and mailings.
 // Extra actions for administrators (Telegram IDs in ADMIN_TELEGRAM_IDS):
 //   broadcast_help   — pressed «📣 Рассылка»;
 //   broadcast_draft  — sent any other message: it becomes a draft, the bot shows a preview;
@@ -37,6 +38,7 @@ if (update.callback_query) {
   const data = String(cq.data ?? '');
   const isAdmin = admins.includes(String(from?.id));
   if (data === 'retry_calc') action = 'retry';
+  else if (data === 'consent_yes') action = 'consent';
   else if (data === 'news_on') action = 'news_on';
   else if (data === 'news_off') action = 'news_off';
   else if (isAdmin && /^bc_send:\d+$/.test(data)) {
@@ -79,7 +81,7 @@ return [
       messageId,
       sourceMessageId,
       // Only these actions show the calculator button, so only they need the availability check.
-      needsCheck: ['start', 'calculator', 'retry'].includes(action),
+      needsCheck: ['consent', 'calculator', 'retry'].includes(action),
       // Name and username for the bot_users table (language and Premium are not kept).
       user: from
         ? {
