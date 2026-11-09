@@ -99,6 +99,37 @@
       "onError": "continueRegularOutput"
     },
     {
+      "id": "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0007",
+      "name": "Согласие: удалить вместе с пользователем",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "consents"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.telegram_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
       "id": "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0006",
       "name": "Рассылки: удалить отчёты старше 3 лет",
       "type": "n8n-nodes-base.dataTable",
@@ -199,6 +230,11 @@
         [
           {
             "node": "Подписка: удалить вместе с пользователем",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Согласие: удалить вместе с пользователем",
             "type": "main",
             "index": 0
           }

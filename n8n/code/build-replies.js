@@ -39,8 +39,7 @@ const send = (text, reply_markup) => ({
   },
 });
 
-// Same buttons are used by «Подписка на новости» and «Рассылка» branches of the workflow.
-const newsButton = { inline_keyboard: [[{ text: '🔔 Получать новости', callback_data: 'news_on' }]] };
+// Removes inline buttons from the message under which a button was pressed.
 const removeButtons = () => ({
   json: {
     method: 'editMessageReplyMarkup',
@@ -48,12 +47,14 @@ const removeButtons = () => ({
   },
 });
 
-const newsPrompt =
-  'Прежде чем продолжим, один важный момент\n\n' +
-  'Я буду присылать в этот бот полезные материалы, если хотите получать – нажмите кнопку под этим сообщением👇 ' +
-  'Никакого спама, согласие нужно по требованиям законодательства РФ.\n\n' +
-  'Нажимая на кнопку, вы подтверждаете, что ' +
-  `<a href="${esc(mailingConsentUrl)}">согласны получать информационные и рекламные рассылки</a>`;
+// /start: one message, one button for both consents (personal data and mailings).
+const consentButton = { inline_keyboard: [[{ text: 'СОГЛАСЕН / СОГЛАСНА', callback_data: 'consent_yes' }]] };
+const consentPrompt =
+  `👋 Здравствуйте${p.firstName ? `, ${esc(p.firstName)}` : ''}!\n\n` +
+  'Чтобы пользоваться ботом и ипотечным калькулятором, нажмите кнопку ниже — этим вы подтверждаете ' +
+  `<a href="${esc(consentUrl)}">согласие</a> на обработку персональных данных согласно ` +
+  `<a href="${esc(policyUrl)}">Политике обработки персональных данных</a>, а также ` +
+  `<a href="${esc(mailingConsentUrl)}">согласие</a> на получение информационных и рекламных материалов.`;
 
 // Some phones can't open the Mini App inside Telegram (stuck in-app browser, VPN): offer the same page in a browser.
 const browserHint = `\n\nЕсли калькулятор не открылся в Telegram, откройте его в браузере по <a href="${esc(calcUrl)}">ссылке</a>.`;
@@ -66,14 +67,15 @@ const unavailable = () =>
   );
 
 const welcomeText =
-  `Здравствуйте${p.firstName ? `, ${esc(p.firstName)}` : ''}! 👋\n\n` +
   'Это ипотечный калькулятор центра недвижимости «Совесть». ' +
   'Он покажет ежемесячный платёж, переплату и то, как досрочные погашения сокращают срок и проценты.\n\n' +
   '⚠️ <b>Калькулятор носит ознакомительный характер.</b> Расчёт не является публичной офертой; ' +
-  'точные условия кредита определяет банк.\n\n' +
-  'Пользуясь ботом, вы соглашаетесь с ' +
-  `<a href="${esc(policyUrl)}">политикой обработки персональных данных</a> и даёте ` +
-  `<a href="${esc(consentUrl)}">согласие на обработку персональных данных</a>.`;
+  'точные условия кредита определяет банк.';
+
+const thanksText =
+  'Спасибо, согласие получено ✅\n\n' +
+  'Отписаться от рассылки можно в любой момент: кнопкой под любой рассылкой или командой /stopnews. ' +
+  'Бот и калькулятор при этом продолжат работать.';
 
 const out = [];
 
@@ -84,15 +86,14 @@ if (p.callbackId) {
 
 switch (p.action) {
   case 'start':
-    if (available) {
-      // A message carries either buttons under it or the bottom menu. The welcome has the calculator button,
-      // the bottom menu comes with the next reply (e.g. «Готово, вы подписаны»); commands are in the «Меню» button.
-      out.push(send(welcomeText + browserHint, calcButton));
-    } else {
-      out.push(send(welcomeText, menuKeyboard));
-      out.push(unavailable());
-    }
-    out.push(send(newsPrompt, newsButton));
+    out.push(send(consentPrompt, consentButton));
+    break;
+  case 'consent':
+    // The «Подписка» and «Согласие» branches record the consent; here: thanks with the bottom menu,
+    // then the calculator (a message carries either buttons under it or the bottom menu, not both).
+    out.push(removeButtons());
+    out.push(send(thanksText, menuKeyboard));
+    out.push(available ? send(welcomeText + browserHint, calcButton) : unavailable());
     break;
   case 'news_on':
     if (p.callbackId) out.push(removeButtons());

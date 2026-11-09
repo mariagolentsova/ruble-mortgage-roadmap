@@ -2,7 +2,7 @@
 // (privacy policy, section 7.2):
 //   • bot_users — people who have not written to the bot for more than 3 years
 //     (`updatedAt` changes on every message or button press);
-//   • news_subscribers — the mailing subscription of every user deleted from bot_users;
+//   • news_subscribers, consents — the subscription and consent record of every user deleted from bot_users;
 //   • mortgage_calculations — saved calculations not updated for more than 3 years;
 //   • broadcasts — broadcast reports older than 3 years (they may list Telegram IDs).
 // Run:  node n8n/build-cleanup.mjs
@@ -77,6 +77,22 @@ const nodes = [
     },
     onError: "continueRegularOutput",
   },
+  {
+    id: "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0007",
+    name: "Согласие: удалить вместе с пользователем",
+    type: "n8n-nodes-base.dataTable",
+    typeVersion: 1.1,
+    position: [780, 0],
+    parameters: {
+      resource: "row",
+      operation: "deleteRows",
+      dataTableId: { __rl: true, mode: "name", value: "consents" },
+      matchType: "allConditions",
+      filters: { conditions: [{ keyName: "telegram_id", condition: "eq", keyValue: "={{ $json.telegram_id }}" }] },
+      options: {},
+    },
+    onError: "continueRegularOutput",
+  },
   deleteOlderThanCutoff(
     "5d7e9b1a-3c2f-4e6a-8b90-7f1e2d3c0006",
     "Рассылки: удалить отчёты старше 3 лет",
@@ -105,7 +121,14 @@ const workflow = {
       ],
     },
     "Пользователи: удалить неактивных больше 3 лет": { main: [[{ node: "Кого удалили", type: "main", index: 0 }]] },
-    "Кого удалили": { main: [[{ node: "Подписка: удалить вместе с пользователем", type: "main", index: 0 }]] },
+    "Кого удалили": {
+      main: [
+        [
+          { node: "Подписка: удалить вместе с пользователем", type: "main", index: 0 },
+          { node: "Согласие: удалить вместе с пользователем", type: "main", index: 0 },
+        ],
+      ],
+    },
   },
   // Successful runs are not kept in the execution history: it would hold a copy of the deleted rows.
   settings: { executionOrder: "v1", timezone: "Europe/Moscow", saveDataSuccessExecution: "none", saveDataErrorExecution: "all" },

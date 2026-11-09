@@ -36,6 +36,19 @@ export const NEWS_TABLE_COLUMNS = [
   ["unsubscribe_reason", "string"],
 ];
 
+// Proof of consent: «СОГЛАСЕН / СОГЛАСНА» under the /start message (personal data + mailings).
+export const CONSENTS_TABLE_NAME = "consents";
+export const CONSENTS_TABLE_COLUMNS = [
+  ["telegram_id", "string"],
+  ["username", "string"],
+  ["first_name", "string"],
+  ["consent_at", "date"],
+  ["button_text", "string"],
+  ["pd_policy_url", "string"],
+  ["pd_consent_url", "string"],
+  ["mailing_consent_url", "string"],
+];
+
 // One row per broadcast: protects from sending twice and keeps the delivery report.
 export const BROADCASTS_TABLE_NAME = "broadcasts";
 export const BROADCASTS_TABLE_COLUMNS = [
@@ -268,7 +281,7 @@ const nodes = [
   // ---------- News subscription (button «Получать новости», «Отписаться», /news, /stopnews) ----------
   node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0301", "Подписка на новости?", "n8n-nodes-base.if", 2.2, [480, 1000], ifTrue(
     "c3",
-    "={{ ['news_on', 'news_off'].includes($json.action) }}",
+    "={{ ['news_on', 'news_off', 'consent'].includes($json.action) }}",
     isTrue,
   )),
   node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0302", "Подписка: строка", "n8n-nodes-base.code", 2, [720, 1000], {
@@ -279,6 +292,21 @@ const nodes = [
     jsCode: "return $('Подписка: строка').all();",
   }),
   upsertBy("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0305", "Подписчики: создать или обновить", [1440, 1000], NEWS_TABLE_NAME, "telegram_id"),
+
+  // ---------- Consent («СОГЛАСЕН / СОГЛАСНА») ----------
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0501", "Согласие?", "n8n-nodes-base.if", 2.2, [480, 1150], ifTrue(
+    "c7",
+    "={{ $json.action === 'consent' }}",
+    isTrue,
+  )),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0502", "Согласие: строка", "n8n-nodes-base.code", 2, [720, 1150], {
+    jsCode: code("consent-row.js"),
+  }),
+  createTable("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0503", "Согласия: создать таблицу, если нет", [960, 1150], CONSENTS_TABLE_NAME, CONSENTS_TABLE_COLUMNS),
+  node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0504", "Взять строку согласия", "n8n-nodes-base.code", 2, [1200, 1150], {
+    jsCode: "return $('Согласие: строка').all();",
+  }),
+  upsertBy("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0505", "Согласия: записать", [1440, 1150], CONSENTS_TABLE_NAME, "telegram_id"),
 
   // ---------- Broadcast (administrator pressed «Отправить подписчикам») ----------
   node("6f0b2d1e-1a01-4c55-9a3e-0c2f1b7d0401", "Отправить рассылку?", "n8n-nodes-base.if", 2.2, [480, 1300], ifTrue(
@@ -492,6 +520,7 @@ const connections = {
         { node: "Нужна проверка калькулятора?", type: "main", index: 0 },
         { node: "Карточка пользователя", type: "main", index: 0 },
         { node: "Подписка на новости?", type: "main", index: 0 },
+        { node: "Согласие?", type: "main", index: 0 },
         { node: "Отправить рассылку?", type: "main", index: 0 },
       ],
     ],
@@ -510,6 +539,11 @@ const connections = {
   "Подписка: строка": main("Подписчики: создать таблицу, если нет"),
   "Подписчики: создать таблицу, если нет": main("Взять строку подписки"),
   "Взять строку подписки": main("Подписчики: создать или обновить"),
+
+  "Согласие?": main("Согласие: строка"),
+  "Согласие: строка": main("Согласия: создать таблицу, если нет"),
+  "Согласия: создать таблицу, если нет": main("Взять строку согласия"),
+  "Взять строку согласия": main("Согласия: записать"),
 
   "Отправить рассылку?": main("Рассылки: создать таблицу, если нет"),
   "Рассылки: создать таблицу, если нет": main("Эту рассылку уже отправляли?"),
