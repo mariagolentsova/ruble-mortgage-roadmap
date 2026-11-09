@@ -43,8 +43,9 @@ cat /home/deploy/.ssh/github      # закрытый ключ → секрет S
 `SSH_USER` = `deploy`, `DEPLOY_PATH` = `/opt/mortgage/site`, `SSH_KEY` = закрытый ключ.
 Затем Actions → «Build and deploy» → Run workflow.
 
-## 3. Прокси в Нидерландах
+## 3. Прокси в Нидерландах (когда появится)
 
+Пока бот ходит в Telegram через Cloudflare Worker (`TELEGRAM_API_URL` в `extra-bots.env`).
 Прокси из `mila-tg-bot/proxy/server` пропускает только боты из `BOT_IDS`. На сервере прокси добавьте
 номер бота «Совесть» (цифры до двоеточия в токене) через `|` в `.env` и перезапустите:
 `docker compose up -d`.
