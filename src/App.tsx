@@ -33,8 +33,6 @@ import { buildCalculationRecord, formatCalculationText, saveCalculation, SAVE_ME
 import { copyText } from "@/lib/clipboard";
 
 // Logos live in public/. Relative paths, so the app works at / and under a prefix like /calc/.
-const LOGO_MILK = "logo-milk.png";
-const LOGO_GOLD = "logo-gold.png";
 
 
 /* ---------- state ---------- */
@@ -109,7 +107,6 @@ const groupDigits = (s: string) => {
 export default function Calculator() {
   const [f, setF] = useState<FormState>(defaults);
   const [shown, setShown] = useState(false);
-  const [theme, setTheme] = useState<"milk" | "gold">("milk");
   const resultsRef = useRef<HTMLDivElement>(null);
   // Errors appear only for a field the person has left, or after «Рассчитать» — never on an untouched empty form.
   const [submitted, setSubmitted] = useState(false);
@@ -122,10 +119,6 @@ export default function Calculator() {
     } catch {
       /* storage unavailable */
     }
-    const t = (document.documentElement.dataset["theme"] as "milk" | "gold") || "milk";
-    setTheme(t);
-    const obs = new MutationObserver(() => setTheme((document.documentElement.dataset["theme"] as "milk" | "gold") || "milk"));
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     const w = tg();
     if (w) {
       try {
@@ -137,7 +130,6 @@ export default function Calculator() {
         /* outside Telegram */
       }
     }
-    return () => obs.disconnect();
   }, []);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((p) => ({ ...p, [k]: v }));
@@ -277,15 +269,10 @@ export default function Calculator() {
     }
   };
 
-  const logo = theme === "gold" ? LOGO_GOLD : LOGO_MILK;
-
   return (
     <div className="mx-auto min-h-screen w-full max-w-[480px] overflow-x-hidden">
       <header className="safe-top bg-navy px-5 pb-5 text-navy-foreground">
-        <div className="flex items-center justify-center">
-          <img src={logo} alt="Центр недвижимости «Совесть»" className="h-10 w-auto" />
-        </div>
-        <h1 className="mt-3 text-center text-lg font-semibold tracking-tight text-brand">Ипотечный калькулятор</h1>
+        <h1 className="text-center text-lg font-semibold tracking-tight text-brand">Ипотечный калькулятор</h1>
       </header>
 
       <main className="safe-bottom space-y-4 px-4 pt-4">
