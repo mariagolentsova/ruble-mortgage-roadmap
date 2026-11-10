@@ -3,7 +3,7 @@
 - Static single-page app: Vite + React + Tailwind v4. No server, no SSR, no router.
 - Whole UI is `src/App.tsx`; all mortgage math is in `src/lib/mortgage.ts` (covered by `src/lib/mortgage.test.ts`).
 - Build output `dist/` is deployed to a VPS and served by Nginx (see DEPLOY.md, deploy/nginx.conf).
-- Logos are plain files in `public/` (`/logo-milk.png`, `/logo-gold.png`).
+- No logo in the calculator header. `public/logo-milk.png` is used only by the legal pages.
 - "Сохранить расчёт" posts Telegram initData + a flat record (`src/lib/saveCalculation.ts`) to `/api/save-calculation`; Nginx proxies it to the n8n webhook.
 - News: «Получать новости» → Data Table news_subscribers; admins (ADMIN_TELEGRAM_IDS) send any message to the bot → preview → copyMessage to subscribers; reports in broadcasts.
 - Daily deletion of personal data older than 3 years (bot_users with their news_subscribers row, mortgage_calculations, broadcasts): `node n8n/build-cleanup.mjs` → `n8n/data-cleanup.workflow.json`.
