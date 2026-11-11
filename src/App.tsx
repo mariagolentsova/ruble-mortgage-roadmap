@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Info, Plus, Trash2, Save, RotateCcw, Loader2 } from "lucide-react";
+import { ChevronDown, Info, Plus, Trash2, Save, RotateCcw, Loader2, MessageCircle } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -70,9 +70,26 @@ type TgWebApp = {
   setHeaderColor?: (c: string) => void;
   setBackgroundColor?: (c: string) => void;
   initData?: string;
+  openTelegramLink?: (url: string) => void;
 };
 const tg = (): TgWebApp | undefined =>
   typeof window !== "undefined" ? (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp : undefined;
+
+// «Есть вопросы? Пишите» — the specialist's Telegram (same person as the bot's «Задать вопрос»).
+const SPECIALIST_URL: string = import.meta.env["VITE_SPECIALIST_URL"] ?? "https://t.me/poljka_uli";
+const openSpecialist = () => {
+  const w = tg();
+  // Inside Telegram a t.me link opens the chat in the app itself; elsewhere — a new tab.
+  if (w?.openTelegramLink && w.initData) {
+    try {
+      w.openTelegramLink(SPECIALIST_URL);
+      return;
+    } catch {
+      /* fall back to a plain link */
+    }
+  }
+  window.open(SPECIALIST_URL, "_blank", "noopener");
+};
 
 /**
  * Default month of the first early payment, as on calcus.ru: a one-off or monthly payment starts with the
@@ -527,6 +544,14 @@ function Results({
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           {saving ? "Сохраняем…" : "Сохранить расчёт"}
+        </button>
+        <button
+          type="button"
+          onClick={openSpecialist}
+          className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-primary bg-card text-sm font-semibold text-primary"
+        >
+          <MessageCircle className="h-4 w-4" />
+          Есть вопросы? Пишите
         </button>
       </div>
     </div>
